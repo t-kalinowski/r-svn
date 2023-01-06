@@ -16,6 +16,9 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       R_CRAN_WEB: "https://cran.rstudio.com"
       CRAN_RSYNC: 'mirrors.nic.cz::CRAN'
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      R_KEEP_PKG_SOURCE: yes
+
     strategy:
       fail-fast: false
       matrix:
@@ -55,6 +58,38 @@ jobs:
     - name: Print failed tests
       if: always()
       run: tail -n100 tests/*.fail || true
+
+## START TEST R7
+    - name: Install R
+      run: make install
+
+    - name: Install pandoc
+      run: apt-get install -y pandoc
+
+    - name: Install R packages for testing
+      shell: Rscript {0}
+      run: |
+        install.packages(
+          c("remotes", "rcmdcheck"),
+          repos = "https://cran.rstudio.com/",
+          Ncpus = 3L)
+
+    - name: Clone R7
+      run: git clone https://github.com/t-kalinowski/S5 --branch base-R-support --depth 1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install R7
+      shell: Rscript {0}
+      run: remotes::install_local("S5", dependencies = TRUE)
+
+    - name: Check R7
+      shell: Rscript {0}
+      run: |
+        rcmdcheck::rcmdcheck("S5",
+          args = c("--no-manual", "--as-cran"),
+          error_on = "warning")
+## END TEST R7
 
   macos:
     name: MacOS
@@ -104,6 +139,39 @@ jobs:
       if: always()
       run: tail -n100 tests/*.fail || true
 
+## START TEST R7
+    - name: Install R
+      run: make install
+
+    - name: Install pandoc
+      run: brew install pandoc
+
+    - name: Install R packages for testing
+      shell: Rscript {0}
+      run: |
+        install.packages(
+          c("remotes", "rcmdcheck"),
+          repos = "https://cran.rstudio.com/",
+          Ncpus = 3L)
+
+    - name: Clone R7
+      run: git clone https://github.com/t-kalinowski/S5 --branch base-R-support --depth 1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install R7
+      shell: Rscript {0}
+      run: remotes::install_local("S5", dependencies = TRUE)
+
+    - name: Check R7
+      shell: Rscript {0}
+      run: |
+        rcmdcheck::rcmdcheck("S5",
+          args = c("--no-manual", "--as-cran"),
+          error_on = "warning")
+## END TEST R7
+
+
   windows:
     name: Windows
     runs-on: windows-latest
@@ -146,6 +214,39 @@ jobs:
       if: failure()
       shell: bash
       run: tail -n100 tests/*.fail
+
+## START TEST R7
+    - name: Install R
+      run: make install
+
+    - name: Install pandoc
+      run: choco install pandoc
+
+    - name: Install R packages for testing
+      shell: Rscript {0}
+      run: |
+        install.packages(
+          c("remotes", "rcmdcheck"),
+          repos = "https://cran.rstudio.com/",
+          Ncpus = 3L)
+
+    - name: Clone R7
+      run: git clone https://github.com/t-kalinowski/S5 --branch base-R-support --depth 1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install R7
+      shell: Rscript {0}
+      run: remotes::install_local("S5", dependencies = TRUE)
+
+    - name: Check R7
+      shell: Rscript {0}
+      run: |
+        rcmdcheck::rcmdcheck("S5",
+          args = c("--no-manual", "--as-cran"),
+          error_on = "warning")
+## END TEST R7
+
 
   installer:
     name: Windows Installer
