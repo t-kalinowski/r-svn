@@ -63,6 +63,9 @@ jobs:
     - name: Install R
       run: make install
 
+    - name: Install pandoc
+      run: apt-get install -y pandoc
+
     - name: Install R packages for testing
       shell: Rscript {0}
       run: |
@@ -140,6 +143,9 @@ jobs:
     - name: Install R
       run: make install
 
+    - name: Install pandoc
+      run: brew install pandoc
+
     - name: Install R packages for testing
       shell: Rscript {0}
       run: |
@@ -212,6 +218,9 @@ jobs:
 ## START TEST R7
     - name: Install R
       run: make install
+
+    - name: Install pandoc
+      run: choco install pandoc
 
     - name: Install R packages for testing
       shell: Rscript {0}
