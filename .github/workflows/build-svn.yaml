@@ -56,6 +56,20 @@ jobs:
       if: always()
       run: tail -n100 tests/*.fail || true
 
+## START TEST R7
+    - name: Install R
+      run: make install
+
+    - name: Install R7
+      run: |
+        install.packages(c("remotes", "rcmdcheck"), repos = "https://cran.rstudio.com/")
+        remotes::install_github("t-kalinowski/S5@base-R-support", dependencies = TRUE)
+      shell: Rscript {}
+
+    - name: Check R7
+      uses: r-lib/actions/check-r-package@v2
+## END TEST R7
+
   macos:
     name: MacOS
     runs-on: macos-latest
@@ -104,6 +118,20 @@ jobs:
       if: always()
       run: tail -n100 tests/*.fail || true
 
+## START TEST R7
+    - name: Install R
+      run: make install
+
+    - name: Install R7
+      run: |
+        install.packages(c("remotes", "rcmdcheck"), repos = "https://cran.rstudio.com/")
+        remotes::install_github("t-kalinowski/S5@base-R-support", dependencies = TRUE)
+      shell: Rscript {}
+
+    - name: Check R7
+      uses: r-lib/actions/check-r-package@v2
+## END TEST R7
+
   windows:
     name: Windows
     runs-on: windows-latest
@@ -146,6 +174,20 @@ jobs:
       if: failure()
       shell: bash
       run: tail -n100 tests/*.fail
+
+## START TEST R7
+    - name: Install R
+      run: make install
+
+    - name: Install R7
+      run: |
+        install.packages(c("remotes", "rcmdcheck"), repos = "https://cran.rstudio.com/")
+        remotes::install_github("t-kalinowski/S5@base-R-support", dependencies = TRUE)
+      shell: Rscript {}
+
+    - name: Check R7
+      uses: r-lib/actions/check-r-package@v2
+## END TEST R7
 
   installer:
     name: Windows Installer
