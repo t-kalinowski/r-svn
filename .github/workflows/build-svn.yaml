@@ -72,7 +72,7 @@ jobs:
           Ncpus = 3L)
 
     - name: Clone R7
-      run: gh repo clone t-kalinowski/S5 -- --branch base-R-support --depth 1
+      run: git clone https://github.com/t-kalinowski/S5 --branch base-R-support --depth 1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -149,7 +149,7 @@ jobs:
           Ncpus = 3L)
 
     - name: Clone R7
-      run: gh repo clone t-kalinowski/S5 -- --branch base-R-support --depth 1
+      run: git clone https://github.com/t-kalinowski/S5 --branch base-R-support --depth 1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -222,7 +222,7 @@ jobs:
           Ncpus = 3L)
 
     - name: Clone R7
-      run: gh repo clone t-kalinowski/S5 -- --branch base-R-support --depth 1
+      run: git clone https://github.com/t-kalinowski/S5 --branch base-R-support --depth 1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
