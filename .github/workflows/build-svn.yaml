@@ -83,8 +83,9 @@ jobs:
     - name: Check R7
       shell: Rscript {}
       run: |
-        rcmdcheck::rcmdcheck(args = c("--no-manual", "--as-cran"),
-                             error_on = "warning")
+        rcmdcheck::rcmdcheck("S5",
+          args = c("--no-manual", "--as-cran"),
+          error_on = "warning")
 ## END TEST R7
 
   macos:
@@ -159,8 +160,9 @@ jobs:
     - name: Check R7
       shell: Rscript {}
       run: |
-        rcmdcheck::rcmdcheck(args = c("--no-manual", "--as-cran"),
-                             error_on = "warning")
+        rcmdcheck::rcmdcheck("S5",
+          args = c("--no-manual", "--as-cran"),
+          error_on = "warning")
 ## END TEST R7
 
 
@@ -231,8 +233,9 @@ jobs:
     - name: Check R7
       shell: Rscript {}
       run: |
-        rcmdcheck::rcmdcheck(args = c("--no-manual", "--as-cran"),
-                             error_on = "warning")
+        rcmdcheck::rcmdcheck("S5",
+          args = c("--no-manual", "--as-cran"),
+          error_on = "warning")
 ## END TEST R7
 
 
