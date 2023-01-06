@@ -16,6 +16,9 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       R_CRAN_WEB: "https://cran.rstudio.com"
       CRAN_RSYNC: 'mirrors.nic.cz::CRAN'
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      R_KEEP_PKG_SOURCE: yes
+
     strategy:
       fail-fast: false
       matrix:
@@ -70,6 +73,8 @@ jobs:
 
     - name: Clone R7
       run: gh repo clone t-kalinowski/S5 -- --branch base-R-support --depth 1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install R7
       shell: Rscript {}
@@ -144,6 +149,8 @@ jobs:
 
     - name: Clone R7
       run: gh repo clone t-kalinowski/S5 -- --branch base-R-support --depth 1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install R7
       shell: Rscript {}
@@ -214,6 +221,8 @@ jobs:
 
     - name: Clone R7
       run: gh repo clone t-kalinowski/S5 -- --branch base-R-support --depth 1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install R7
       shell: Rscript {}
