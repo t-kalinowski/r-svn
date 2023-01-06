@@ -64,7 +64,7 @@ jobs:
       run: make install
 
     - name: Install R packages for testing
-      shell: Rscript {}
+      shell: Rscript {0}
       run: |
         install.packages(
           c("remotes", "rcmdcheck"),
@@ -77,11 +77,11 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install R7
-      shell: Rscript {}
+      shell: Rscript {0}
       run: remotes::install_local("S5", dependencies = TRUE)
 
     - name: Check R7
-      shell: Rscript {}
+      shell: Rscript {0}
       run: |
         rcmdcheck::rcmdcheck("S5",
           args = c("--no-manual", "--as-cran"),
@@ -141,7 +141,7 @@ jobs:
       run: make install
 
     - name: Install R packages for testing
-      shell: Rscript {}
+      shell: Rscript {0}
       run: |
         install.packages(
           c("remotes", "rcmdcheck"),
@@ -154,11 +154,11 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install R7
-      shell: Rscript {}
+      shell: Rscript {0}
       run: remotes::install_local("S5", dependencies = TRUE)
 
     - name: Check R7
-      shell: Rscript {}
+      shell: Rscript {0}
       run: |
         rcmdcheck::rcmdcheck("S5",
           args = c("--no-manual", "--as-cran"),
@@ -214,7 +214,7 @@ jobs:
       run: make install
 
     - name: Install R packages for testing
-      shell: Rscript {}
+      shell: Rscript {0}
       run: |
         install.packages(
           c("remotes", "rcmdcheck"),
@@ -227,11 +227,11 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install R7
-      shell: Rscript {}
+      shell: Rscript {0}
       run: remotes::install_local("S5", dependencies = TRUE)
 
     - name: Check R7
-      shell: Rscript {}
+      shell: Rscript {0}
       run: |
         rcmdcheck::rcmdcheck("S5",
           args = c("--no-manual", "--as-cran"),
