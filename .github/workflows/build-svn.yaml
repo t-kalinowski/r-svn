@@ -60,14 +60,26 @@ jobs:
     - name: Install R
       run: make install
 
-    - name: Install R7
-      run: |
-        install.packages(c("remotes", "rcmdcheck"), repos = "https://cran.rstudio.com/")
-        remotes::install_github("t-kalinowski/S5@base-R-support", dependencies = TRUE)
+    - name: Install R packages for testing
       shell: Rscript {}
+      run: |
+        install.packages(
+          c("remotes", "rcmdcheck"),
+          repos = "https://cran.rstudio.com/",
+          Ncpus = 3L)
+
+    - name: Clone R7
+      run: gh repo clone t-kalinowski/S5 -- --branch base-R-support --depth 1
+
+    - name: Install R7
+      shell: Rscript {}
+      run: remotes::install_local("S5", dependencies = TRUE)
 
     - name: Check R7
-      uses: r-lib/actions/check-r-package@v2
+      shell: Rscript {}
+      run: |
+        rcmdcheck::rcmdcheck(args = c("--no-manual", "--as-cran"),
+                             error_on = "warning")
 ## END TEST R7
 
   macos:
@@ -122,15 +134,28 @@ jobs:
     - name: Install R
       run: make install
 
-    - name: Install R7
-      run: |
-        install.packages(c("remotes", "rcmdcheck"), repos = "https://cran.rstudio.com/")
-        remotes::install_github("t-kalinowski/S5@base-R-support", dependencies = TRUE)
+    - name: Install R packages for testing
       shell: Rscript {}
+      run: |
+        install.packages(
+          c("remotes", "rcmdcheck"),
+          repos = "https://cran.rstudio.com/",
+          Ncpus = 3L)
+
+    - name: Clone R7
+      run: gh repo clone t-kalinowski/S5 -- --branch base-R-support --depth 1
+
+    - name: Install R7
+      shell: Rscript {}
+      run: remotes::install_local("S5", dependencies = TRUE)
 
     - name: Check R7
-      uses: r-lib/actions/check-r-package@v2
+      shell: Rscript {}
+      run: |
+        rcmdcheck::rcmdcheck(args = c("--no-manual", "--as-cran"),
+                             error_on = "warning")
 ## END TEST R7
+
 
   windows:
     name: Windows
@@ -179,15 +204,28 @@ jobs:
     - name: Install R
       run: make install
 
-    - name: Install R7
-      run: |
-        install.packages(c("remotes", "rcmdcheck"), repos = "https://cran.rstudio.com/")
-        remotes::install_github("t-kalinowski/S5@base-R-support", dependencies = TRUE)
+    - name: Install R packages for testing
       shell: Rscript {}
+      run: |
+        install.packages(
+          c("remotes", "rcmdcheck"),
+          repos = "https://cran.rstudio.com/",
+          Ncpus = 3L)
+
+    - name: Clone R7
+      run: gh repo clone t-kalinowski/S5 -- --branch base-R-support --depth 1
+
+    - name: Install R7
+      shell: Rscript {}
+      run: remotes::install_local("S5", dependencies = TRUE)
 
     - name: Check R7
-      uses: r-lib/actions/check-r-package@v2
+      shell: Rscript {}
+      run: |
+        rcmdcheck::rcmdcheck(args = c("--no-manual", "--as-cran"),
+                             error_on = "warning")
 ## END TEST R7
+
 
   installer:
     name: Windows Installer
