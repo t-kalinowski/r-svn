@@ -58,7 +58,6 @@ is.name <- is.symbol
 
 assign("::", function(pkg, name) NULL, envir = .ArgsEnv)
 assign(":::", function(pkg, name) NULL, envir = .ArgsEnv)
-assign("%*%", function(x, y) NULL, envir = .ArgsEnv)
 assign("...length", function() NULL, envir = .ArgsEnv)
 assign("...names",  function() NULL, envir = .ArgsEnv)
 assign("...elt", function(n) NULL, envir = .ArgsEnv)
@@ -160,7 +159,9 @@ assign("untracemem", function(x) NULL, envir = .ArgsEnv)
     "c", "dim", "dim<-", "dimnames", "dimnames<-",
     "is.array", "is.finite",
     "is.infinite", "is.matrix", "is.na", "is.nan", "is.numeric",
-    "length", "length<-", "levels<-", "names", "names<-", "rep",
+    "length", "length<-", "levels<-",
+    "log2", "log10",
+    "names", "names<-", "rep",
     "seq.int", "xtfrm")
 
 .GenericArgsEnv <- local({
@@ -225,6 +226,8 @@ assign("as.double", function(x, ...) UseMethod("as.double"),
 assign("as.integer", function(x, ...) UseMethod("as.integer"),
        envir = .GenericArgsEnv)
 assign("as.logical", function(x, ...) UseMethod("as.logical"),
+       envir = .GenericArgsEnv)
+assign("%*%", function(x, y) UseMethod("%*%"),
        envir = .GenericArgsEnv)
 #assign("as.raw", function(x) UseMethod("as.raw"), envir = .GenericArgsEnv)
 ## Conceptually, this is the argument list of  *default* method, not the generic :
