@@ -187,6 +187,11 @@
 
       \item The \code{@} operator is now an S3 generic. Based on
       contributions by Tomasz Kalinowski in \PR{18482}.
+      
+      \item new generic \code{pickOpsMethod()} provides a mechanism for
+      objects to resolve cases where two suitable methods are found for
+      an Ops Group Generic. Based on contributions by Tomasz Kalinowski
+      in \PR{18484}
 
       \item Detection of BLAS/LAPACK in use (\code{sessionInfo()}) with
       FlexiBLAS now reports the current backend.
