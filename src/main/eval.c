@@ -3991,6 +3991,20 @@ static SEXP classForGroupDispatch(SEXP obj) {
 	    : getAttrib(obj, R_ClassSymbol);
 }
 
+static Rboolean R_pickOpsMethod(SEXP x, SEXP y, SEXP x_method_sxp, SEXP y_method_sxp,
+				SEXP call, SEXP rho, Rboolean reverse) {
+    SEXP pick_call, ans;
+    PROTECT(pick_call = lang6(x, y, x_method_sxp, y_method_sxp, call,
+			      ScalarLogical(reverse)));
+    PROTECT(pick_call = LCONS(
+	Rf_findVarInFrame(R_BaseNamespace, install("pickOpsMethod")), 
+	pick_call));
+    PROTECT(ans = eval(pick_call, rho));
+    Rboolean pick_left = ans == R_NilValue ? FALSE : asLogical(ans);
+    UNPROTECT(3);
+    return pick_left;
+}
+
 attribute_hidden
 int DispatchGroup(const char* group, SEXP call, SEXP op, SEXP args, SEXP rho,
 		  SEXP *ans)
@@ -4078,6 +4092,7 @@ int DispatchGroup(const char* group, SEXP call, SEXP op, SEXP args, SEXP rho,
 		     (streql(rname, "+.POSIXt") || streql(rname, "+.Date")) )
 		lsxp = R_NilValue;
 
+
 	    /* Strict comparison, the docs requires methods to be "the same":
 	      16 to take environments into account
 	     1+2 for bitwise comparison of numbers
@@ -4086,10 +4101,19 @@ int DispatchGroup(const char* group, SEXP call, SEXP op, SEXP args, SEXP rho,
 	         srcref ignored (as per default)
 	    */
 	    else if (!R_compute_identical(lsxp, rsxp, 16 + 1 + 2 + 4)) {
-		warning(_("Incompatible methods (\"%s\", \"%s\") for \"%s\""),
-			lname, rname, generic);
-		UNPROTECT(4);
-		return 0;
+		SEXP x = CAR(args), y = CADR(args);
+		if (R_pickOpsMethod(x, y, lsxp, rsxp, call, rho, FALSE)) {
+		    rsxp = R_NilValue;
+		}
+		else if (R_pickOpsMethod(y, x, rsxp, lsxp, call, rho, TRUE)) {
+		    lsxp = R_NilValue;
+		}
+		else {
+		    warning(_("Incompatible methods (\"%s\", \"%s\") for \"%s\""),
+			    lname, rname, generic);
+		    UNPROTECT(4);
+		    return 0;
+		}
 	    }
 	}
 	/* if the right hand side is the one */
