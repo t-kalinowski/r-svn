@@ -122,6 +122,17 @@ static R_INLINE hlen ihash(SEXP x, R_xlen_t indx, HashData *d)
     return scatter((unsigned int) xi, d);
 }
 
+static R_INLINE hlen i64hash_value(R_int64_t x, HashData *d)
+{
+    uint64_t xi = (uint64_t) x;
+    return scatter((unsigned int) (xi ^ (xi >> 32)), d);
+}
+
+static R_INLINE hlen i64hash(SEXP x, R_xlen_t indx, HashData *d)
+{
+    return i64hash_value(INT64_ELT(x, indx), d);
+}
+
 /* We use unions here because Solaris gcc -O2 has trouble with
    casting + incrementing pointers.  We use tests here, but R currently
    assumes int is 4 bytes and double is 8 bytes.
@@ -149,6 +160,50 @@ static R_INLINE hlen rhash(SEXP x, R_xlen_t indx, HashData *d)
 #else
     return scatter(*((unsigned int *) (&tmp)), d);
 #endif
+}
+
+#define INT64_DOUBLE_MIN_BOUND (-9223372036854775808.0)
+#define INT64_DOUBLE_MAX_BOUND 9223372036854775808.0
+
+static R_INLINE int real_is_int64_value(double x, R_int64_t *v)
+{
+    if (R_IsNA(x)) {
+	*v = NA_INT64;
+	return 1;
+    }
+    if (R_IsNaN(x) || !R_FINITE(x) ||
+	x <= INT64_DOUBLE_MIN_BOUND || x >= INT64_DOUBLE_MAX_BOUND)
+	return 0;
+
+    R_int64_t val = (R_int64_t) x;
+    if ((double) val != x || val == NA_INT64)
+	return 0;
+
+    *v = val;
+    return 1;
+}
+
+static hlen i64rhash(SEXP x, R_xlen_t indx, HashData *d)
+{
+    if (TYPEOF(x) == INT64SXP)
+	return i64hash_value(INT64_ELT(x, indx), d);
+
+    R_int64_t val;
+    double rx = REAL_ELT(x, indx);
+    if (real_is_int64_value(rx, &val))
+	return i64hash_value(val, d);
+    return rhash(x, indx, d);
+}
+
+static R_INLINE int complex_is_int64_match_value(Rcomplex z, R_int64_t *v)
+{
+    if (R_IsNA(z.r) || R_IsNA(z.i)) {
+	*v = NA_INT64;
+	return 1;
+    }
+    if (R_IsNaN(z.r) || R_IsNaN(z.i) || z.i != 0)
+	return 0;
+    return real_is_int64_value(z.r, v);
 }
 
 static Rcomplex unify_complex_na(Rcomplex z) {
@@ -180,6 +235,18 @@ static hlen chash(SEXP x, R_xlen_t indx, HashData *d)
 	return scatter((*((unsigned int *)(&tmp.r)) ^
 			(*((unsigned int *)(&tmp.i)))), d);
 #endif
+}
+
+static hlen i64chash(SEXP x, R_xlen_t indx, HashData *d)
+{
+    if (TYPEOF(x) == INT64SXP)
+	return i64hash_value(INT64_ELT(x, indx), d);
+
+    R_int64_t val;
+    Rcomplex z = COMPLEX_ELT(x, indx);
+    if (complex_is_int64_match_value(z, &val))
+	return i64hash_value(val, d);
+    return chash(x, indx, d);
 }
 
 /* Pointer hashing as used here isn't entirely portable (we do it in
@@ -249,6 +316,12 @@ static R_INLINE int iequal(SEXP x, R_xlen_t i, SEXP y, R_xlen_t j)
     return (INTEGER_ELT(x, i) == INTEGER_ELT(y, j));
 }
 
+static R_INLINE int i64equal(SEXP x, R_xlen_t i, SEXP y, R_xlen_t j)
+{
+    if (i < 0 || j < 0) return 0;
+    return (INT64_ELT(x, i) == INT64_ELT(y, j));
+}
+
 /* BDR 2002-1-17  We don't want NA and other NaNs to be equal */
 static R_INLINE int requal(SEXP x, R_xlen_t i, SEXP y, R_xlen_t j)
 {
@@ -260,6 +333,30 @@ static R_INLINE int requal(SEXP x, R_xlen_t i, SEXP y, R_xlen_t j)
     else if (R_IsNA(xi) && R_IsNA(yj)) return 1;
     else if (R_IsNaN(xi) && R_IsNaN(yj)) return 1;
     else return 0;
+}
+
+static R_INLINE int int64_real_equal(R_int64_t x, double y)
+{
+    if (x == NA_INT64)
+	return R_IsNA(y);
+
+    R_int64_t val;
+    return real_is_int64_value(y, &val) && val == x;
+}
+
+static R_INLINE int i64requal(SEXP x, R_xlen_t i, SEXP y, R_xlen_t j)
+{
+    if (i < 0 || j < 0) return 0;
+    SEXPTYPE xt = TYPEOF(x), yt = TYPEOF(y);
+    if (xt == INT64SXP && yt == INT64SXP)
+	return i64equal(x, i, y, j);
+    if (xt == REALSXP && yt == REALSXP)
+	return requal(x, i, y, j);
+    if (xt == INT64SXP && yt == REALSXP)
+	return int64_real_equal(INT64_ELT(x, i), REAL_ELT(y, j));
+    if (xt == REALSXP && yt == INT64SXP)
+	return int64_real_equal(INT64_ELT(y, j), REAL_ELT(x, i));
+    return 0;
 }
 
 /* This is differentiating {NA,1}, {NA,0}, {NA, NaN}, {NA, NA},
@@ -283,6 +380,33 @@ static int cequal(SEXP x, R_xlen_t i, SEXP y, R_xlen_t j)
 {
     if (i < 0 || j < 0) return 0;
     return cplx_eq(COMPLEX_ELT(x, i), COMPLEX_ELT(y, j));
+}
+
+static R_INLINE int int64_complex_equal(R_int64_t x, Rcomplex y)
+{
+    if (x == NA_INT64)
+	return R_IsNA(y.r) || R_IsNA(y.i);
+    if (R_IsNA(y.r) || R_IsNA(y.i) ||
+	R_IsNaN(y.r) || R_IsNaN(y.i) || y.i != 0)
+	return 0;
+
+    R_int64_t val;
+    return real_is_int64_value(y.r, &val) && val == x;
+}
+
+static R_INLINE int i64cequal(SEXP x, R_xlen_t i, SEXP y, R_xlen_t j)
+{
+    if (i < 0 || j < 0) return 0;
+    SEXPTYPE xt = TYPEOF(x), yt = TYPEOF(y);
+    if (xt == INT64SXP && yt == INT64SXP)
+	return i64equal(x, i, y, j);
+    if (xt == CPLXSXP && yt == CPLXSXP)
+	return cequal(x, i, y, j);
+    if (xt == INT64SXP && yt == CPLXSXP)
+	return int64_complex_equal(INT64_ELT(x, i), COMPLEX_ELT(y, j));
+    if (xt == CPLXSXP && yt == INT64SXP)
+	return int64_complex_equal(INT64_ELT(y, j), COMPLEX_ELT(x, i));
+    return 0;
 }
 
 static R_INLINE int sequal(SEXP x, R_xlen_t i, SEXP y, R_xlen_t j)
@@ -343,6 +467,12 @@ static hlen vhash_one(SEXP _this, HashData *d)
     case INTSXP:
 	for(i = 0; i < LENGTH(_this); i++) {
 	    key ^= ihash(_this, i, d);
+	    key *= 97;
+	}
+	break;
+    case INT64SXP:
+	for(i = 0; i < LENGTH(_this); i++) {
+	    key ^= i64hash(_this, i, d);
 	    key *= 97;
 	}
 	break;
@@ -483,6 +613,11 @@ static void HashTableSetup(SEXP x, HashData *d, R_xlen_t nmax)
 	MKsetup(LENGTH(x), d, nmax);
 #endif
     }
+	break;
+    case INT64SXP:
+	d->hash = i64hash;
+	d->equal = i64equal;
+	MKsetup(XLENGTH(x), d, nmax);
 	break;
     case REALSXP:
 	d->hash = rhash;
@@ -1179,6 +1314,14 @@ attribute_hidden SEXP do_duplicated(SEXP call, SEXP op, SEXP args, SEXP env)
 		}
 	    });
 	break;
+    case INT64SXP:
+	ITERATE_BY_REGION(dup, duptr, idx, nb, int, LOGICAL, {
+		for(R_xlen_t j = 0; j < nb; j++) {
+		    if(duptr[j] == 0)
+			INT640(ans)[k++] = INT64_ELT(x, idx + j);
+		}
+	    });
+	break;
     case REALSXP:
 	ITERATE_BY_REGION(dup, duptr, idx, nb, int, LOGICAL, {
 		for(R_xlen_t j = 0; j < nb; j++) {
@@ -1247,6 +1390,7 @@ static void UndoHashing(SEXP x, SEXP table, HashData *d)
 
 /* definitions to help the C compiler to inline of most important cases */
 DEFLOOKUP(iLookup, ihash, iequal)
+DEFLOOKUP(i64Lookup, i64hash, i64equal)
 DEFLOOKUP(rLookup, rhash, requal)
 DEFLOOKUP(sLookup, shash, sequal)
 
@@ -1263,22 +1407,31 @@ static SEXP HashLookup(SEXP table, SEXP x, HashData *d)
     PROTECT(ans = allocVector(INTSXP, n));
     int *pa = INTEGER0(ans);
 
-    switch (TYPEOF(x)) {
-    case INTSXP:
-	for (i = 0; i < n; i++)
-	    pa[i] = iLookup(table, x, i, d);
-	break;
-    case REALSXP:
-	for (i = 0; i < n; i++)
-	    pa[i] = rLookup(table, x, i, d);
-	break;
-    case STRSXP:
-	for (i = 0; i < n; i++)
-	    pa[i] = sLookup(table, x, i, d);
-	break;
-    default:
+    if (d->equal == i64requal || d->equal == i64cequal) {
 	for (i = 0; i < n; i++)
 	    pa[i] = Lookup(table, x, i, d);
+    } else {
+	switch (TYPEOF(x)) {
+	case INTSXP:
+	    for (i = 0; i < n; i++)
+		pa[i] = iLookup(table, x, i, d);
+	    break;
+	case INT64SXP:
+	    for (i = 0; i < n; i++)
+		pa[i] = i64Lookup(table, x, i, d);
+	    break;
+	case REALSXP:
+	    for (i = 0; i < n; i++)
+		pa[i] = rLookup(table, x, i, d);
+	    break;
+	case STRSXP:
+	    for (i = 0; i < n; i++)
+		pa[i] = sLookup(table, x, i, d);
+	    break;
+	default:
+	    for (i = 0; i < n; i++)
+		pa[i] = Lookup(table, x, i, d);
+	}
     }
 
     UNPROTECT(1);
@@ -1383,18 +1536,33 @@ SEXP match5(SEXP itable, SEXP ix, int nmatch, SEXP incomp, SEXP env)
         PROTECT_WITH_INDEX(table = match_transform(itable, env), &tbpi);
     }
 
-    SEXPTYPE type;
+    SEXPTYPE type = NILSXP;
+    Rboolean mixed_i64_real =
+	(TYPEOF(x) == INT64SXP && TYPEOF(table) == REALSXP) ||
+	(TYPEOF(x) == REALSXP && TYPEOF(table) == INT64SXP);
+    Rboolean mixed_i64_complex =
+	(TYPEOF(x) == INT64SXP && TYPEOF(table) == CPLXSXP) ||
+	(TYPEOF(x) == CPLXSXP && TYPEOF(table) == INT64SXP);
+    Rboolean mixed_i64 = mixed_i64_real || mixed_i64_complex;
     /* Coerce to a common type; type == NILSXP is ok here.
      * Note that above we coerce factors and "POSIXlt", only to character.
      * Hence, coerce to character or to `higher' type
      * (given that we have "Vector" or NULL) */
-    if(TYPEOF(x) >= STRSXP || TYPEOF(table) >= STRSXP) type = STRSXP;
-    else type = TYPEOF(x) < TYPEOF(table) ? TYPEOF(table) : TYPEOF(x);
-    REPROTECT(x	    = coerceVector(x,	  type),  xpi);
-    REPROTECT(table = coerceVector(table, type), tbpi);
+    if(!mixed_i64) {
+	if(TYPEOF(x) >= STRSXP || TYPEOF(table) >= STRSXP) type = STRSXP;
+	else if(TYPEOF(x) == INT64SXP || TYPEOF(table) == INT64SXP) {
+	    if(TYPEOF(x) == CPLXSXP || TYPEOF(table) == CPLXSXP)
+		type = CPLXSXP;
+	    else
+		type = INT64SXP;
+	}
+	else type = TYPEOF(x) < TYPEOF(table) ? TYPEOF(table) : TYPEOF(x);
+	REPROTECT(x	= coerceVector(x,     type), xpi);
+	REPROTECT(table = coerceVector(table, type), tbpi);
+    }
 
     // special case scalar x -- for speed only :
-    if(XLENGTH(x) == 1 && !incomp) {
+    if(!mixed_i64 && XLENGTH(x) == 1 && !incomp) {
       int val = nmatch;
       int ntable = LENGTH(table);
       switch (type) {
@@ -1408,6 +1576,13 @@ SEXP match5(SEXP itable, SEXP ix, int nmatch, SEXP incomp, SEXP env)
       case INTSXP: {
 	  int x_val = INTEGER_ELT(x, 0),
 	      *table_p = INTEGER(table);
+	  for (int i=0; i < ntable; i++) if (table_p[i] == x_val) {
+		  val = i + 1; break;
+	      }
+	  break; }
+      case INT64SXP: {
+	  R_int64_t x_val = INT64_ELT(x, 0),
+	      *table_p = INT64(table);
 	  for (int i=0; i < ntable; i++) if (table_p[i] == x_val) {
 		  val = i + 1; break;
 	      }
@@ -1454,11 +1629,31 @@ SEXP match5(SEXP itable, SEXP ix, int nmatch, SEXP incomp, SEXP env)
     }
     else { // regular case
 	HashData data = { 0 };
-	if (incomp) { PROTECT(incomp = coerceVector(incomp, type)); nprot++; }
+	if (incomp) {
+	    SEXPTYPE incomp_type = type;
+	    if (mixed_i64) {
+		SEXPTYPE raw_incomp_type = TYPEOF(incomp);
+		if (raw_incomp_type == INT64SXP ||
+		    (mixed_i64_real && raw_incomp_type == REALSXP) ||
+		    (mixed_i64_complex && raw_incomp_type == CPLXSXP))
+		    incomp_type = raw_incomp_type;
+		else
+		    incomp_type = TYPEOF(x);
+	    }
+	    PROTECT(incomp = coerceVector(incomp, incomp_type));
+	    nprot++;
+	}
 	data.nomatch = nmatch;
 	HashTableSetup(table, &data, NA_INTEGER);
+	if (mixed_i64_real) {
+	    data.hash = i64rhash;
+	    data.equal = i64requal;
+	} else if (mixed_i64_complex) {
+	    data.hash = i64chash;
+	    data.equal = i64cequal;
+	}
 	PROTECT(data.HashTable); nprot++;
-	if(type == STRSXP) {
+	if(!mixed_i64 && type == STRSXP) {
 	    Rboolean useBytes = FALSE;
 	    Rboolean useUTF8 = FALSE;
 	    Rboolean useCache = TRUE;
@@ -1976,6 +2171,7 @@ attribute_hidden SEXP do_matchcall(SEXP call, SEXP op, SEXP args, SEXP env)
 #    include <memory.h>
 #endif
 
+#include "int64-utils.h"
 
 static SEXP
 rowsum(SEXP x, SEXP g, SEXP uniqueg, SEXP snarm, SEXP rn)
@@ -2031,6 +2227,26 @@ rowsum(SEXP x, SEXP g, SEXP uniqueg, SEXP snarm, SEXP rn)
 		    if (dtmp < INT_MIN || dtmp > INT_MAX) itmp = NA_INTEGER;
 		    else itmp += xjpo;
 		    pa[pmatches[j] - 1 + offsetg] = itmp;
+		}
+	    }
+	    offset += n;
+	    offsetg += ng;
+	}
+	break;
+    case INT64SXP:
+	Memzero(INT64(ans), ng*p);
+	for(int i = 0; i < p; i++) {
+	    R_int64_t *pa = INT64(ans);
+	    for(int j = 0; j < n; j++) {
+		R_int64_t xjpo = INT64_ELT(x, j + offset);
+		R_xlen_t idx = pmatches[j] - 1 + offsetg;
+		if (xjpo == NA_INT64) {
+		    if(!narm)
+			pa[idx] = NA_INT64;
+		} else if (pa[idx] != NA_INT64) {
+		    R_int64_t sum;
+		    pa[idx] = int64_add_ok(pa[idx], xjpo, &sum) ?
+			sum : NA_INT64;
 		}
 	    }
 	    offset += n;
@@ -2105,6 +2321,24 @@ rowsum_df(SEXP x, SEXP g, SEXP uniqueg, SEXP snarm, SEXP rn)
 		    if (dtmp < INT_MIN || dtmp > INT_MAX) itmp = NA_INTEGER;
 		    else itmp += xj;
 		    INTEGER0(col)[pmatches[j] - 1] = itmp;
+		}
+	    }
+	    SET_VECTOR_ELT(ans, i, col);
+	    UNPROTECT(1);
+	    break;
+	case INT64SXP:
+	    PROTECT(col = allocVector(INT64SXP, ng));
+	    Memzero(INT64(col), ng);
+	    for(R_xlen_t j = 0; j < n; j++) {
+		R_int64_t xj = INT64_ELT(xcol, j);
+		R_xlen_t idx = pmatches[j] - 1;
+		if (xj == NA_INT64) {
+		    if(!narm)
+			INT64(col)[idx] = NA_INT64;
+		} else if (INT64(col)[idx] != NA_INT64) {
+		    R_int64_t sum;
+		    INT64(col)[idx] = int64_add_ok(INT64(col)[idx], xj, &sum) ?
+			sum : NA_INT64;
 		}
 	    }
 	    SET_VECTOR_ELT(ans, i, col);

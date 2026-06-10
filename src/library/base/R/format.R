@@ -62,7 +62,7 @@ format.default <-
 			      paste(" with", length(sls),
 				    if(length(sls) == 1L) "slot" else "slots"), ">")
 	       },
-	       numeric =, logical =, complex =,
+	       numeric =, int64 =, logical =, complex =,
                externalptr =,
 	       environment =
 		   prettyNum(.Internal(format(x, trim, digits, nsmall, width, 3L,
@@ -151,7 +151,13 @@ formatC <- function (x, digits = NULL, width = NULL,
     }
 
     if (!(n <- length(x))) return(character())
-    if (is.null(mode))	  mode <- storage.mode(x)
+    if (is.null(mode)) {
+	mode <- storage.mode(x)
+	if (mode == "int64") {
+	    x <- as.character(x)
+	    mode <- "character"
+	}
+    }
     else if (any(mode == c("double", "real", "integer")))  {
       ## for .C call later on
 	if(mode == "real") mode <- "double"

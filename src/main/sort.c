@@ -42,6 +42,16 @@ static int icmp(int x, int y, bool nalast)
     return 0;
 }
 
+static int i64cmp(R_int64_t x, R_int64_t y, bool nalast)
+{
+    if (x == NA_INT64 && y == NA_INT64) return 0;
+    if (x == NA_INT64)return nalast ? 1 : -1;
+    if (y == NA_INT64)return nalast ? -1 : 1;
+    if (x < y)		return -1;
+    if (x > y)		return 1;
+    return 0;
+}
+
 static int rcmp(double x, double y, bool nalast)
 {
     int nax = ISNAN(x), nay = ISNAN(y);
@@ -137,6 +147,20 @@ Rboolean isUnsorted(SEXP x, Rboolean strictly)
 		    });
 	    }
 	    break;
+	case INT64SXP:
+	{
+	    const R_int64_t *xptr = INT64_RO(x);
+	    if(strictly) {
+		for(i = 0; i+1 < n ; i++)
+		    if(xptr[i] >= xptr[i+1])
+			return TRUE;
+	    } else {
+		for(i = 0; i+1 < n ; i++)
+		    if(xptr[i] > xptr[i+1])
+			return TRUE;
+	    }
+	    break;
+	}
 	case REALSXP:
 	    if(strictly) {
 		ITERATE_BY_REGION(x, xptr, i, nbatch, double, REAL, {
@@ -584,6 +608,23 @@ static void R_rsort2(double *x, R_xlen_t n, bool decreasing)
 #undef less
 }
 
+static void R_i64sort2(R_int64_t *x, R_xlen_t n, bool decreasing)
+{
+    R_int64_t v;
+    R_xlen_t i, j, h, t;
+
+    if (n < 2) error("'n >= 2' is required");
+    for (t = 0; incs[t] > n; t++);
+    if(decreasing)
+#define less <
+	sort2_body
+#undef less
+    else
+#define less >
+	sort2_body
+#undef less
+}
+
 static void R_csort2(Rcomplex *x, R_xlen_t n, bool decreasing)
 {
     Rcomplex v;
@@ -644,6 +685,9 @@ void sortVector(SEXP s, bool decreasing)
 	case REALSXP:
 	    R_rsort2(REAL(s), n, decreasing);
 	    break;
+	case INT64SXP:
+	    R_i64sort2(INT64(s), n, decreasing);
+	    break;
 	case CPLXSXP:
 	    R_csort2(COMPLEX(s), n, decreasing);
 	    break;
@@ -697,6 +741,14 @@ static void rPsort2(double *x, R_xlen_t lo, R_xlen_t hi, R_xlen_t k)
 #undef TYPE_CMP
 }
 
+static void i64Psort2(R_int64_t *x, R_xlen_t lo, R_xlen_t hi, R_xlen_t k)
+{
+    R_int64_t v, w;
+#define TYPE_CMP i64cmp
+    psort_body
+#undef TYPE_CMP
+}
+
 static void cPsort2(Rcomplex *x, R_xlen_t lo, R_xlen_t hi, R_xlen_t k)
 {
     Rcomplex v, w;
@@ -742,6 +794,9 @@ static void Psort(SEXP x, R_xlen_t lo, R_xlen_t hi, R_xlen_t k)
 	break;
     case REALSXP:
 	rPsort2(REAL(x), lo, hi, k);
+	break;
+    case INT64SXP:
+	i64Psort2(INT64(x), lo, hi, k);
 	break;
     case CPLXSXP:
 	cPsort2(COMPLEX(x), lo, hi, k);
@@ -849,6 +904,9 @@ static int equal(R_xlen_t i, R_xlen_t j, SEXP x, bool nalast, SEXP rho)
 	case INTSXP:
 	    c = icmp(INTEGER(x)[i], INTEGER(x)[j], nalast);
 	    break;
+	case INT64SXP:
+	    c = i64cmp(INT64(x)[i], INT64(x)[j], nalast);
+	    break;
 	case REALSXP:
 	    c = rcmp(REAL(x)[i], REAL(x)[j], nalast);
 	    break;
@@ -887,6 +945,9 @@ static int greater(R_xlen_t i, R_xlen_t j, SEXP x, bool nalast,
 	case INTSXP:
 	    c = icmp(INTEGER(x)[i], INTEGER(x)[j], nalast);
 	    break;
+	case INT64SXP:
+	    c = i64cmp(INT64(x)[i], INT64(x)[j], nalast);
+	    break;
 	case REALSXP:
 	    c = rcmp(REAL(x)[i], REAL(x)[j], nalast);
 	    break;
@@ -918,6 +979,9 @@ static int listgreater(int i, int j, SEXP key, bool nalast,
 	case LGLSXP:
 	case INTSXP:
 	    c = icmp(INTEGER(x)[i], INTEGER(x)[j], nalast);
+	    break;
+	case INT64SXP:
+	    c = i64cmp(INT64(x)[i], INT64(x)[j], nalast);
 	    break;
 	case REALSXP:
 	    c = rcmp(REAL(x)[i], REAL(x)[j], nalast);
@@ -1015,6 +1079,9 @@ static int listgreaterl(R_xlen_t i, R_xlen_t j, SEXP key, bool nalast,
 	case LGLSXP:
 	case INTSXP:
 	    c = icmp(INTEGER(x)[i], INTEGER(x)[j], nalast);
+	    break;
+	case INT64SXP:
+	    c = i64cmp(INT64(x)[i], INT64(x)[j], nalast);
 	    break;
 	case REALSXP:
 	    c = rcmp(REAL(x)[i], REAL(x)[j], nalast);
@@ -1154,6 +1221,7 @@ orderVector1(int *indx, int n, SEXP key, bool nalast, bool decreasing, SEXP rho)
     int c, i, j, h, t, lo = 0, hi = n-1;
     int itmp, *isna = NULL, numna = 0;
     int *ix = NULL /* -Wall */;
+    R_int64_t *i64x = NULL /* -Wall */;
     double *x = NULL /* -Wall */;
     Rcomplex *cx = NULL /* -Wall */;
     const SEXP *sx = NULL /* -Wall */;
@@ -1166,6 +1234,9 @@ orderVector1(int *indx, int n, SEXP key, bool nalast, bool decreasing, SEXP rho)
 	break;
     case REALSXP:
 	x = REAL(key);
+	break;
+    case INT64SXP:
+	i64x = INT64(key);
 	break;
     case STRSXP:
 	sx = STRING_PTR_RO(key);
@@ -1186,6 +1257,9 @@ orderVector1(int *indx, int n, SEXP key, bool nalast, bool decreasing, SEXP rho)
 	case REALSXP:
 	    for (i = 0; i < n; i++) isna[i] = ISNAN(x[i]);
 	    break;
+	case INT64SXP:
+	    for (i = 0; i < n; i++) isna[i] = (i64x[i] == NA_INT64);
+	    break;
 	case STRSXP:
 	    for (i = 0; i < n; i++) isna[i] = (sx[i] == NA_STRING);
 	    break;
@@ -1202,6 +1276,7 @@ orderVector1(int *indx, int n, SEXP key, bool nalast, bool decreasing, SEXP rho)
 	    case LGLSXP:
 	    case INTSXP:
 	    case REALSXP:
+	    case INT64SXP:
 	    case STRSXP:
 	    case CPLXSXP:
 		if (!nalast) for (i = 0; i < n; i++) isna[i] = !isna[i];
@@ -1247,6 +1322,17 @@ orderVector1(int *indx, int n, SEXP key, bool nalast, bool decreasing, SEXP rho)
 #undef less
 	    } else {
 #define less(a, b) (x[a] > x[b] || (x[a] == x[b] && a > b))
+		sort2_with_index
+#undef less
+	    }
+	    break;
+	case INT64SXP:
+	    if (decreasing) {
+#define less(a, b) (i64x[a] < i64x[b] || (i64x[a] == i64x[b] && a > b))
+		sort2_with_index
+#undef less
+	    } else {
+#define less(a, b) (i64x[a] > i64x[b] || (i64x[a] == i64x[b] && a > b))
 		sort2_with_index
 #undef less
 	    }
@@ -1290,6 +1376,7 @@ orderVector1l(R_xlen_t *indx, R_xlen_t n, SEXP key, bool nalast,
     R_xlen_t c, i, j, h, t, lo = 0, hi = n-1;
     int *isna = NULL, numna = 0;
     int *ix = NULL /* -Wall */;
+    R_int64_t *i64x = NULL /* -Wall */;
     double *x = NULL /* -Wall */;
     Rcomplex *cx = NULL /* -Wall */;
     const SEXP *sx = NULL /* -Wall */;
@@ -1303,6 +1390,9 @@ orderVector1l(R_xlen_t *indx, R_xlen_t n, SEXP key, bool nalast,
 	break;
     case REALSXP:
 	x = REAL(key);
+	break;
+    case INT64SXP:
+	i64x = INT64(key);
 	break;
     case STRSXP:
 	sx = STRING_PTR_RO(key);
@@ -1323,6 +1413,9 @@ orderVector1l(R_xlen_t *indx, R_xlen_t n, SEXP key, bool nalast,
 	case REALSXP:
 	    for (i = 0; i < n; i++) isna[i] = ISNAN(x[i]);
 	    break;
+	case INT64SXP:
+	    for (i = 0; i < n; i++) isna[i] = (i64x[i] == NA_INT64);
+	    break;
 	case STRSXP:
 	    for (i = 0; i < n; i++) isna[i] = (sx[i] == NA_STRING);
 	    break;
@@ -1339,6 +1432,7 @@ orderVector1l(R_xlen_t *indx, R_xlen_t n, SEXP key, bool nalast,
 	    case LGLSXP:
 	    case INTSXP:
 	    case REALSXP:
+	    case INT64SXP:
 	    case STRSXP:
 	    case CPLXSXP:
 		if (!nalast) for (i = 0; i < n; i++) isna[i] = !isna[i];
@@ -1384,6 +1478,17 @@ orderVector1l(R_xlen_t *indx, R_xlen_t n, SEXP key, bool nalast,
 #undef less
 	    } else {
 #define less(a, b) (x[a] > x[b] || (x[a] == x[b] && a > b))
+		sort2_with_index
+#undef less
+	    }
+	    break;
+	case INT64SXP:
+	    if (decreasing) {
+#define less(a, b) (i64x[a] < i64x[b] || (i64x[a] == i64x[b] && a > b))
+		sort2_with_index
+#undef less
+	    } else {
+#define less(a, b) (i64x[a] > i64x[b] || (i64x[a] == i64x[b] && a > b))
 		sort2_with_index
 #undef less
 	    }

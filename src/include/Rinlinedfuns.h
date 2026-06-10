@@ -110,6 +110,7 @@ SEXP CAR(SEXP e);
     switch (TYPEOF(x)) {
     case CHARSXP:
     case LGLSXP:
+    case INT64SXP:
     case INTSXP:
     case REALSXP:
     case CPLXSXP:
@@ -169,6 +170,9 @@ INLINE_FUN const void *DATAPTR_OR_NULL(SEXP x) {
 	if (! (TYPEOF(x) == INTSXP || TYPEOF(x) == LGLSXP))	\
 	    error("bad INTSXP vector");				\
     } while (0)
+# define CHECK_VECTOR_INT64(x) do {				\
+	if (TYPEOF(x) != INT64SXP) error("bad INT64SXP vector"); \
+    } while (0)
 # define CHECK_VECTOR_REAL(x) do {				\
 	if (TYPEOF(x) != REALSXP) error("bad REALSXP vector");	\
     } while (0)
@@ -181,6 +185,7 @@ INLINE_FUN const void *DATAPTR_OR_NULL(SEXP x) {
 #else
 # define CHECK_VECTOR_LGL(x) do { } while(0)
 # define CHECK_VECTOR_INT(x) do { } while(0)
+# define CHECK_VECTOR_INT64(x) do { } while(0)
 # define CHECK_VECTOR_REAL(x) do { } while(0)
 # define CHECK_VECTOR_CPLX(x) do { } while(0)
 # define CHECK_VECTOR_RAW(x) do { } while(0)
@@ -193,6 +198,11 @@ INLINE_FUN const int *LOGICAL_OR_NULL(SEXP x) {
 
 INLINE_FUN const int *INTEGER_OR_NULL(SEXP x) {
     CHECK_VECTOR_INT(x);
+    return ALTREP(x) ? ALTVEC_DATAPTR_OR_NULL(x) : STDVEC_DATAPTR(x);
+}
+
+INLINE_FUN const R_int64_t *INT64_OR_NULL(SEXP x) {
+    CHECK_VECTOR_INT64(x);
     return ALTREP(x) ? ALTVEC_DATAPTR_OR_NULL(x) : STDVEC_DATAPTR(x);
 }
 
@@ -241,6 +251,10 @@ HIDDEN INLINE_FUN R_xlen_t XTRUELENGTH(SEXP x)
 	CHECK_VECTOR_INT(x);					\
 	if (ALTREP(x)) error("bad standard INTSXP vector");	\
     } while (0)
+# define CHECK_STDVEC_INT64(x) do {				\
+	CHECK_VECTOR_INT64(x);					\
+	if (ALTREP(x)) error("bad standard INT64SXP vector");	\
+    } while (0)
 # define CHECK_STDVEC_REAL(x) do {				\
 	CHECK_VECTOR_REAL(x);					\
 	if (ALTREP(x)) error("bad standard REALSXP vector");	\
@@ -261,6 +275,10 @@ HIDDEN INLINE_FUN R_xlen_t XTRUELENGTH(SEXP x)
 # define CHECK_SCALAR_INT(x) do {				\
 	CHECK_VECTOR_INT(x);					\
 	if (XLENGTH(x) != 1) error("bad INTSXP scalar");	\
+    } while (0)
+# define CHECK_SCALAR_INT64(x) do {				\
+	CHECK_VECTOR_INT64(x);					\
+	if (XLENGTH(x) != 1) error("bad INT64SXP scalar");	\
     } while (0)
 # define CHECK_SCALAR_REAL(x) do {				\
 	CHECK_VECTOR_REAL(x);					\
@@ -292,6 +310,12 @@ HIDDEN INLINE_FUN R_xlen_t XTRUELENGTH(SEXP x)
 	CHECK_VECTOR_INT(ce__x__);		\
 	CHECK_BOUNDS_ELT(ce__x__, ce__i__);	\
 } while (0)
+# define CHECK_VECTOR_INT64_ELT(x, i) do {	\
+	SEXP ce__x__ = (x);			\
+	R_xlen_t ce__i__ = (i);			\
+	CHECK_VECTOR_INT64(ce__x__);		\
+	CHECK_BOUNDS_ELT(ce__x__, ce__i__);	\
+} while (0)
 # define CHECK_VECTOR_REAL_ELT(x, i) do {	\
 	SEXP ce__x__ = (x);			\
 	R_xlen_t ce__i__ = (i);			\
@@ -313,18 +337,21 @@ HIDDEN INLINE_FUN R_xlen_t XTRUELENGTH(SEXP x)
 #else
 # define CHECK_STDVEC_LGL(x) do { } while(0)
 # define CHECK_STDVEC_INT(x) do { } while(0)
+# define CHECK_STDVEC_INT64(x) do { } while(0)
 # define CHECK_STDVEC_REAL(x) do { } while(0)
 # define CHECK_STDVEC_CPLX(x) do { } while(0)
 # define CHECK_STDVEC_RAW(x) do { } while(0)
 
 # define CHECK_SCALAR_LGL(x) do { } while(0)
 # define CHECK_SCALAR_INT(x) do { } while(0)
+# define CHECK_SCALAR_INT64(x) do { } while(0)
 # define CHECK_SCALAR_REAL(x) do { } while(0)
 # define CHECK_SCALAR_CPLX(x) do { } while(0)
 # define CHECK_SCALAR_RAW(x) do { } while(0)
 
 # define CHECK_VECTOR_LGL_ELT(x, i) do { } while(0)
 # define CHECK_VECTOR_INT_ELT(x, i) do { } while(0)
+# define CHECK_VECTOR_INT64_ELT(x, i) do { } while(0)
 # define CHECK_VECTOR_REAL_ELT(x, i) do { } while(0)
 # define CHECK_VECTOR_CPLX_ELT(x, i) do { } while(0)
 # define CHECK_VECTOR_RAW_ELT(x, i) do { } while(0)
@@ -349,13 +376,25 @@ HIDDEN INLINE_FUN void SET_SCALAR_LVAL(SEXP x, int v) {
     CHECK_STDVEC_INT(x);
     return (int *) STDVEC_DATAPTR(x);
 }
+/*HIDDEN (inlining)*/ INLINE_FUN R_int64_t *INT640(SEXP x) {
+    CHECK_STDVEC_INT64(x);
+    return (R_int64_t *) STDVEC_DATAPTR(x);
+}
 HIDDEN INLINE_FUN int SCALAR_IVAL(SEXP x) {
     CHECK_SCALAR_INT(x);
     return INTEGER(x)[0];
 }
+HIDDEN INLINE_FUN R_int64_t SCALAR_I64VAL(SEXP x) {
+    CHECK_SCALAR_INT64(x);
+    return INT64(x)[0];
+}
 /*HIDDEN (inlining)*/ INLINE_FUN void SET_SCALAR_IVAL(SEXP x, int v) {
     CHECK_SCALAR_INT(x);
     INTEGER(x)[0] = v;
+}
+/*HIDDEN (inlining)*/ INLINE_FUN void SET_SCALAR_I64VAL(SEXP x, R_int64_t v) {
+    CHECK_SCALAR_INT64(x);
+    INT64(x)[0] = v;
 }
 
 /*HIDDEN*/ INLINE_FUN double *REAL0(SEXP x) {
@@ -410,11 +449,23 @@ INLINE_FUN int INTEGER_ELT(SEXP x, R_xlen_t i)
     return ALTREP(x) ? ALTINTEGER_ELT(x, i) : INTEGER0(x)[i];
 }
 
+INLINE_FUN R_int64_t INT64_ELT(SEXP x, R_xlen_t i)
+{
+    CHECK_VECTOR_INT64_ELT(x, i);
+    return INT640(x)[i];
+}
+
 INLINE_FUN void SET_INTEGER_ELT(SEXP x, R_xlen_t i, int v)
 {
     CHECK_VECTOR_INT_ELT(x, i);
     if (ALTREP(x)) ALTINTEGER_SET_ELT(x, i, v);
     else INTEGER0(x)[i] = v;
+}
+
+INLINE_FUN void SET_INT64_ELT(SEXP x, R_xlen_t i, R_int64_t v)
+{
+    CHECK_VECTOR_INT64_ELT(x, i);
+    INT640(x)[i] = v;
 }
 
 INLINE_FUN int LOGICAL_ELT(SEXP x, R_xlen_t i)
@@ -540,6 +591,7 @@ INLINE_FUN R_len_t length(SEXP s)
     case NILSXP:
 	return 0;
     case LGLSXP:
+    case INT64SXP:
     case INTSXP:
     case REALSXP:
     case CPLXSXP:
@@ -575,6 +627,7 @@ INLINE_FUN R_xlen_t xlength(SEXP s)
     case NILSXP:
 	return 0;
     case LGLSXP:
+    case INT64SXP:
     case INTSXP:
     case REALSXP:
     case CPLXSXP:
@@ -879,6 +932,7 @@ INLINE_FUN Rboolean isVectorAtomic(SEXP s)
 {
     switch (TYPEOF(s)) {
     case LGLSXP:
+    case INT64SXP:
     case INTSXP:
     case REALSXP:
     case CPLXSXP:
@@ -894,6 +948,7 @@ INLINE_FUN Rboolean isVector(SEXP s)/* === isVectorList() or isVectorAtomic() */
 {
     switch(TYPEOF(s)) {
     case LGLSXP:
+    case INT64SXP:
     case INTSXP:
     case REALSXP:
     case CPLXSXP:
@@ -988,6 +1043,7 @@ INLINE_FUN Rboolean isNumeric(SEXP s)
     case INTSXP:
 	if (inherits(s,"factor")) return FALSE;
     case LGLSXP:
+    case INT64SXP:
     case REALSXP:
 	return TRUE;
     default:
@@ -1002,6 +1058,7 @@ INLINE_FUN Rboolean isNumber(SEXP s)
     case INTSXP:
 	if (inherits(s,"factor")) return FALSE;
     case LGLSXP:
+    case INT64SXP:
     case REALSXP:
     case CPLXSXP:
 	return TRUE;
@@ -1024,6 +1081,13 @@ INLINE_FUN SEXP ScalarInteger(int x)
 {
     SEXP ans = allocVector(INTSXP, 1);
     SET_SCALAR_IVAL(ans, x);
+    return ans;
+}
+
+INLINE_FUN SEXP ScalarInt64(R_int64_t x)
+{
+    SEXP ans = allocVector(INT64SXP, 1);
+    SET_SCALAR_I64VAL(ans, x);
     return ans;
 }
 

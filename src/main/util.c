@@ -153,6 +153,8 @@ SEXP asChar(SEXP x)
 		    return NA_STRING;
 		snprintf(buf, MAXELTSIZE, "%d", INTEGER(x)[0]);
 		return mkChar(buf);
+	    case INT64SXP:
+		return StringFromInt64(INT64_ELT(x, 0), NULL);
 	    case REALSXP:
 		PrintDefaults();
 		formatReal(REAL(x), 1, &w, &d, &e, 0);
@@ -216,6 +218,7 @@ TypeTable[] = {
     { "builtin",	BUILTINSXP },
     { "char",		CHARSXP	   },
     { "logical",	LGLSXP	   },
+    { "int64",		INT64SXP   },
     { "integer",	INTSXP	   },
     { "double",		REALSXP	   }, /*-  "real", for R <= 0.61.x */
     { "complex",	CPLXSXP	   },

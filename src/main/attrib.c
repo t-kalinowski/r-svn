@@ -456,6 +456,8 @@ NORET static void badtsp(int k)
 attribute_hidden
 SEXP tspgets(SEXP vec, SEXP val)
 {
+    double start, end, frequency;
+    int nprotect = 0;
     if (vec == R_NilValue)
 	error(_("attempt to set an attribute on NULL"));
 
@@ -469,19 +471,25 @@ SEXP tspgets(SEXP vec, SEXP val)
     if (!isNumeric(val) || LENGTH(val) != 3)
 	error(_("'tsp' attribute must be numeric of length three"));
 
-    double start, end, frequency;
     if (isReal(val)) {
 	start = REAL(val)[0];
 	end = REAL(val)[1];
 	frequency = REAL(val)[2];
     }
-    else {
+    else if (isInteger(val)) {
 	start = (INTEGER(val)[0] == NA_INTEGER) ?
 	    NA_REAL : INTEGER(val)[0];
 	end = (INTEGER(val)[1] == NA_INTEGER) ?
 	    NA_REAL : INTEGER(val)[1];
 	frequency = (INTEGER(val)[2] == NA_INTEGER) ?
 	    NA_REAL : INTEGER(val)[2];
+    }
+    else {
+	PROTECT(val = coerceVector(val, REALSXP));
+	nprotect++;
+	start = REAL(val)[0];
+	end = REAL(val)[1];
+	frequency = REAL(val)[2];
     }
     if (frequency <= 0) badtsp(0);
     int n = nrows(vec);
@@ -491,13 +499,15 @@ SEXP tspgets(SEXP vec, SEXP val)
 	badtsp(1);
 
     PROTECT(vec);
+    nprotect++;
     val = allocVector(REALSXP, 3);
     PROTECT(val);
+    nprotect++;
     REAL(val)[0] = start;
     REAL(val)[1] = end;
     REAL(val)[2] = frequency;
     installAttrib(vec, R_TspSymbol, val);
-    UNPROTECT(2);
+    UNPROTECT(nprotect);
     return vec;
 }
 
@@ -825,6 +835,7 @@ void InitS3DefaultTypes(void)
 		nprotected++;
 		break;
 	    case INTSXP:
+	    case INT64SXP:
 	    case REALSXP:
 		part3 = PROTECT(type2str_nowarn(type));
 		part4 = PROTECT(mkChar("numeric"));

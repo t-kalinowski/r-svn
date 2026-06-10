@@ -56,6 +56,11 @@
 ## .doWrap introduced in r74405 | 2018-03-14   replaced by .doSortWrap in r74504 | 2018-04-02
 .doWrap <- .doSortWrap
 
+.isNumericNotInt64 <- function(x) is.numeric(x) && typeof(x) != "int64"
+
+.isRadixSortable <- function(x)
+    .isNumericNotInt64(x) || is.factor(x) || is.logical(x)
+
 sort <- function(x, decreasing = FALSE, ...)
 {
     if(!is.logical(decreasing) || length(decreasing) != 1L)
@@ -95,13 +100,14 @@ sort.int <-
     }
     method <- match.arg(method)
     if (method == "auto" && is.null(partial) &&
-        (is.numeric(x) || is.factor(x) || is.logical(x)) &&
-        is.integer(length(x)))
+        .isRadixSortable(x) && is.integer(length(x)))
         method <- "radix"
     if (method == "radix") {
         if (!is.null(partial)) {
             stop("'partial' sorting not supported by radix method")
         }
+        if (typeof(x) == "int64")
+            stop("method = \"radix\" is not supported for int64 'x'")
         if (index.return && is.na(na.last)) {
             x <- x[!is.na(x)]
             na.last <- TRUE
@@ -115,6 +121,8 @@ sort.int <-
     }
     else if (method == "auto" || !is.numeric(x))
           method <- "shell" # explicitly prevent 'quick' for non-numeric data
+    else if (method == "quick" && typeof(x) == "int64")
+        stop("method = \"quick\" is not supported for int64 'x'")
 
     if(isfact <- is.factor(x)) {
         if(index.return) stop("'index.return' only for non-factors")
@@ -210,8 +218,7 @@ order <- function(..., na.last = TRUE, decreasing = FALSE,
 
     if (method == "auto") {
         useRadix <- all(vapply(z, function(x) {
-            (is.numeric(x) || is.factor(x) || is.logical(x)) &&
-                is.integer(length(x))
+            .isRadixSortable(x) && is.integer(length(x))
         }, logical(1L)))
         method <- if (useRadix) "radix" else "shell"
     }
@@ -223,6 +230,8 @@ order <- function(..., na.last = TRUE, decreasing = FALSE,
     }
 
     if (method == "radix") {
+        if (any(vapply(z, typeof, character(1L)) == "int64"))
+            stop("method = \"radix\" is not supported for int64 arguments")
         decreasing <- rep_len(as.logical(decreasing), length(z))
         return(.Internal(radixsort(na.last, decreasing, FALSE, TRUE, ...)))
     }
@@ -250,16 +259,18 @@ sort.list <- function(x, partial = NULL, na.last = TRUE, decreasing = FALSE,
 
     method <- match.arg(method)
     if (method == "auto" &&
-        (is.numeric(x) || is.factor(x) || is.logical(x) ||
-         (is.object(x) && !is.atomic(x))) && is.integer(length(x)))
+        (.isRadixSortable(x) || (is.object(x) && !is.atomic(x))) &&
+        is.integer(length(x)))
         method <- "radix"
     if(!is.null(partial))
         .NotYetUsed("partial != NULL")
     if(method == "quick") {
         if(is.factor(x)) x <- as.integer(x) # sort the internal codes
-        if(is.numeric(x))
+        if(.isNumericNotInt64(x))
             return(sort(x, na.last = na.last, decreasing = decreasing,
                         method = "quick", index.return = TRUE)$ix)
+        else if(typeof(x) == "int64")
+            stop("method = \"quick\" is not supported for int64 'x'")
         else stop("method = \"quick\" is only for numeric 'x'")
     }
     if (is.na(na.last)) {
@@ -267,6 +278,8 @@ sort.list <- function(x, partial = NULL, na.last = TRUE, decreasing = FALSE,
         na.last <- TRUE
     }
     if(method == "radix") {
+        if (typeof(x) == "int64")
+            stop("method = \"radix\" is not supported for int64 'x'")
         return(order(x, na.last=na.last, decreasing=decreasing, method="radix"))
     }
     ## method == "shell"

@@ -21,7 +21,10 @@ typeof(1e-3L) == "double" # gives warning
 1.L # gives warning
 inherits(try(parse(text = "12iL"), silent=TRUE), "try-error") # gives syntax error
 
-
+## int64 literal smoke tests.
+typeof(2147483648L) == "int64"
+identical(9007199254740993e0L, as.int64("9007199254740993"))
+identical(0x7fffffffffffffffL, as.int64("9223372036854775807"))
 all((0:6) == pi + ((-pi):pi))
 all((0:7) == (pi+seq(-pi,pi, length=8))*7/(2*pi))
 
@@ -186,4 +189,3 @@ identical(  endsWith(t1, "an"), c(FALSE,FALSE, FALSE, FALSE,FALSE, FALSE, TRUE))
 identical(startsWith(t3, "M" ), c( TRUE, FALSE, TRUE))
 identical(startsWith(t3, "Ma"), c( TRUE, FALSE, FALSE))
 identical(startsWith(t3, "Mä"), c(FALSE, FALSE, TRUE))
-

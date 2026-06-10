@@ -204,6 +204,7 @@ const char *sexptype2char(SEXPTYPE type) {
     case BUILTINSXP:	return "BUILTINSXP";
     case CHARSXP:	return "CHARSXP";
     case LGLSXP:	return "LGLSXP";
+    case INT64SXP:	return "INT64SXP";
     case INTSXP:	return "INTSXP";
     case REALSXP:	return "REALSXP";
     case CPLXSXP:	return "CPLXSXP";
@@ -718,6 +719,7 @@ static R_size_t R_NodesInUse = 0;
   case CHARSXP: \
   case LGLSXP: \
   case INTSXP: \
+  case INT64SXP: \
   case REALSXP: \
   case CPLXSXP: \
   case WEAKREFSXP: \
@@ -1119,6 +1121,9 @@ static R_INLINE R_size_t getVecSizeInVEC(SEXP s)
     case LGLSXP:
     case INTSXP:
 	size = XLENGTH(s) * sizeof(int);
+	break;
+    case INT64SXP:
+	size = XLENGTH(s) * sizeof(R_int64_t);
 	break;
     case REALSXP:
 	size = XLENGTH(s) * sizeof(double);
@@ -2702,6 +2707,7 @@ SEXP allocVector3(SEXPTYPE type, R_xlen_t length, R_allocator_t *allocator)
     if (length == 1) {
 	switch(type) {
 	case REALSXP:
+	case INT64SXP:
 	case INTSXP:
 	case LGLSXP:
 	    node_class = 1;
@@ -2718,6 +2724,7 @@ SEXP allocVector3(SEXPTYPE type, R_xlen_t length, R_allocator_t *allocator)
 #if VALGRIND_LEVEL > 1
 	    switch(type) {
 	    case REALSXP: actual_size = sizeof(double); break;
+	    case INT64SXP: actual_size = sizeof(R_int64_t); break;
 	    case INTSXP: actual_size = sizeof(int); break;
 	    case LGLSXP: actual_size = sizeof(int); break;
 	    }
@@ -2772,6 +2779,19 @@ SEXP allocVector3(SEXPTYPE type, R_xlen_t length, R_allocator_t *allocator)
 	    size = INT2VEC(length);
 #if VALGRIND_LEVEL > 0
 	    actual_size = length*sizeof(int);
+#endif
+	}
+	break;
+    case INT64SXP:
+	if (length <= 0)
+	    size = 0;
+	else {
+	    if (length > R_SIZE_T_MAX / sizeof(R_int64_t))
+		error(_("cannot allocate vector of length %lld"),
+		      (long long)length);
+	    size = FLOAT2VEC(length);
+#if VALGRIND_LEVEL > 0
+	    actual_size = length * sizeof(R_int64_t);
 #endif
 	}
 	break;
@@ -2976,6 +2996,8 @@ SEXP allocVector3(SEXPTYPE type, R_xlen_t length, R_allocator_t *allocator)
 #if VALGRIND_LEVEL > 0
     else if (type == REALSXP)
 	VALGRIND_MAKE_MEM_UNDEFINED(REAL(s), actual_size);
+    else if (type == INT64SXP)
+	VALGRIND_MAKE_MEM_UNDEFINED(INT64(s), actual_size);
     else if (type == INTSXP)
 	VALGRIND_MAKE_MEM_UNDEFINED(INTEGER(s), actual_size);
     else if (type == LGLSXP)
@@ -3341,11 +3363,11 @@ attribute_hidden SEXP do_memoryprofile(SEXP call, SEXP op, SEXP args, SEXP env)
     int i, tmp;
 
     checkArity(op, args);
-    PROTECT(ans = allocVector(INTSXP, 24));
-    PROTECT(nms = allocVector(STRSXP, 24));
-    for (i = 0; i < 24; i++) {
+    PROTECT(ans = allocVector(INTSXP, 25));
+    PROTECT(nms = allocVector(STRSXP, 25));
+    for (i = 0; i < 25; i++) {
 	INTEGER(ans)[i] = 0;
-	SET_STRING_ELT(nms, i, type2str(i > LGLSXP? i+2 : i));
+	SET_STRING_ELT(nms, i, type2str(i > INT64SXP ? i + 1 : i));
     }
     setAttrib(ans, R_NamesSymbol, nms);
 
@@ -3361,7 +3383,7 @@ attribute_hidden SEXP do_memoryprofile(SEXP call, SEXP op, SEXP args, SEXP env)
 	       s != R_GenHeap[i].Old[gen];
 	       s = NEXT_NODE(s)) {
 	      tmp = TYPEOF(s);
-	      if(tmp > LGLSXP) tmp -= 2;
+	      if(tmp > INT64SXP) tmp--;
 	      INTEGER(ans)[tmp]++;
 	  }
 	}
@@ -4066,7 +4088,7 @@ void (SET_GROWABLE_BIT)(SEXP x) { SET_GROWABLE_BIT(CHK(x)); }
 
 static int nvec[32] = {
     1,1,1,1,1,1,1,1,
-    1,0,0,1,1,0,0,0,
+    1,0,0,0,1,0,0,0,
     0,1,1,0,0,1,1,0,
     0,1,1,1,1,1,1,1
 };

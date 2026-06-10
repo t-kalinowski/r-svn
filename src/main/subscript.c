@@ -103,6 +103,36 @@ static R_INLINE int integerOneIndex(int i, R_xlen_t len, SEXP call)
     return indx;
 }
 
+static R_INLINE R_xlen_t int64OneIndex(R_int64_t i, R_xlen_t len, SEXP call,
+				       const char *where, bool cap_oob)
+{
+    R_xlen_t indx = -1;
+
+    if (i == NA_INT64)
+	return indx;
+    if (i > (R_int64_t) R_XLEN_T_MAX) {
+	ECALL(call, _("subscript too large"));
+    } else if (i >= 1) {
+	if (cap_oob && i > (R_int64_t) len)
+	    indx = len;
+	else
+	    indx = (R_xlen_t) (i - 1);
+    } else if (i > -1 || len < 2) {
+	ECALL3(call,
+	       (i <= -1) ? _("invalid negative subscript in %s")
+	       : _("attempt to select less than one element in %s"),
+	       where);
+    } else if (len == 2 && i > -3)
+	indx = 2 + (R_xlen_t) i;
+    else {
+	ECALL3(call,
+	       (i <= -1) ? _("invalid negative subscript in %s")
+	       : _("attempt to select more than one element in %s"),
+	       where);
+    }
+    return indx;
+}
+
 /* Utility used (only in) do_subassign2_dflt(), i.e. "[[<-" in ./subassign.c : */
 attribute_hidden R_xlen_t
 OneIndex(SEXP x, SEXP s, R_xlen_t nx, int partial, SEXP *newname,
@@ -144,6 +174,10 @@ OneIndex(SEXP x, SEXP s, R_xlen_t nx, int partial, SEXP *newname,
 	}
 	break;
     }
+    case INT64SXP:
+	indx = int64OneIndex(INT64_ELT(s, pos), nx, call,
+			     "get1index <int64>", false);
+	break;
     case STRSXP:
 	vmax = vmaxget();
 	names = getAttrib(x, R_NamesSymbol);
@@ -268,6 +302,10 @@ get1index(SEXP s, SEXP names, R_xlen_t len, int pok, int pos, SEXP call)
 	}
 	break;
     }
+    case INT64SXP:
+	indx = int64OneIndex(INT64_ELT(s, pos), len, call,
+			     "get1index <int64>", true);
+	break;
     case STRSXP:
 	/* NA matches nothing */
 	if(STRING_ELT(s, pos) == NA_STRING) break;
@@ -450,22 +488,44 @@ attribute_hidden SEXP mat2indsub(SEXP dims, SEXP s, SEXP call, SEXP x)
 		}
 	    }
 	} else {
-	    s = coerceVector(s, INTSXP);
-	    const int *ps = INTEGER_RO(s);
-	    for (int i = 0; i < nrs; i++) {
-		R_xlen_t tdim = 1;
-		for (int j = 0; j < ndim; j++) {
-		    int k = ps[i + j * NR];
-		    if(k == NA_INTEGER) {rv[i] = NA_REAL; break;}
-		    if(k < 0) {
-			ECALL(call, _("negative values are not allowed in a matrix subscript"));
+	    if (TYPEOF(s) == INT64SXP) {
+		const R_int64_t *ps = INT64_RO(s);
+		for (int i = 0; i < nrs; i++) {
+		    R_xlen_t tdim = 1;
+		    for (int j = 0; j < ndim; j++) {
+			R_int64_t k = ps[i + j * NR];
+			if(k == NA_INT64) {rv[i] = NA_REAL; break;}
+			if(k < 0) {
+			    ECALL(call, _("negative values are not allowed in a matrix subscript"));
+			}
+			if(k == 0) {rv[i] = 0.; break;}
+			if (k > pdims[j]) {
+			    R_xlen_t kk = k > R_XLEN_T_MAX ?
+				R_XLEN_T_MAX : (R_xlen_t) k;
+			    ECALL_OutOfBounds(x, j, kk, call);
+			}
+			rv[i] += ((double) k - 1.) * tdim;
+			tdim *= pdims[j];
 		    }
-		    if(k == 0) {rv[i] = 0.; break;}
-		    if (k > pdims[j]) {
-			ECALL_OutOfBounds(x, j, k, call);
+		}
+	    } else {
+		s = coerceVector(s, INTSXP);
+		const int *ps = INTEGER_RO(s);
+		for (int i = 0; i < nrs; i++) {
+		    R_xlen_t tdim = 1;
+		    for (int j = 0; j < ndim; j++) {
+			int k = ps[i + j * NR];
+			if(k == NA_INTEGER) {rv[i] = NA_REAL; break;}
+			if(k < 0) {
+			    ECALL(call, _("negative values are not allowed in a matrix subscript"));
+			}
+			if(k == 0) {rv[i] = 0.; break;}
+			if (k > pdims[j]) {
+			    ECALL_OutOfBounds(x, j, k, call);
+			}
+			rv[i] += (double) ((k - 1) * tdim);
+			tdim *= pdims[j];
 		    }
-		    rv[i] += (double) ((k - 1) * tdim);
-		    tdim *= pdims[j];
 		}
 	    }
 	}
@@ -475,22 +535,44 @@ attribute_hidden SEXP mat2indsub(SEXP dims, SEXP s, SEXP call, SEXP x)
 	PROTECT(rvec = allocVector(INTSXP, nrs));
 	int *iv = INTEGER(rvec);
 	for (int i = 0; i < nrs; i++) iv[i] = 1; // 1-based.
-	s = coerceVector(s, INTSXP);
-	int *ps = INTEGER(s);
-	for (int i = 0; i < nrs; i++) {
-	    int tdim = 1;
-	    for (int j = 0; j < ndim; j++) {
-		int k = ps[i + j * NR];
-		if(k == NA_INTEGER) {iv[i] = NA_INTEGER; break;}
-		if(k < 0) {
-		    ECALL(call, _("negative values are not allowed in a matrix subscript"));
+	if (TYPEOF(s) == INT64SXP) {
+	    const R_int64_t *ps = INT64_RO(s);
+	    for (int i = 0; i < nrs; i++) {
+		int tdim = 1;
+		for (int j = 0; j < ndim; j++) {
+		    R_int64_t k = ps[i + j * NR];
+		    if(k == NA_INT64) {iv[i] = NA_INTEGER; break;}
+		    if(k < 0) {
+			ECALL(call, _("negative values are not allowed in a matrix subscript"));
+		    }
+		    if(k == 0) {iv[i] = 0; break;}
+		    if (k > pdims[j]) {
+			R_xlen_t kk = k > R_XLEN_T_MAX ?
+			    R_XLEN_T_MAX : (R_xlen_t) k;
+			ECALL_OutOfBounds(x, j, kk, call);
+		    }
+		    iv[i] += ((int) k - 1) * tdim;
+		    tdim *= pdims[j];
 		}
-		if(k == 0) {iv[i] = 0; break;}
-		if (k > pdims[j]) {
-		    ECALL_OutOfBounds(x, j, k, call);
+	    }
+	} else {
+	    s = coerceVector(s, INTSXP);
+	    int *ps = INTEGER(s);
+	    for (int i = 0; i < nrs; i++) {
+		int tdim = 1;
+		for (int j = 0; j < ndim; j++) {
+		    int k = ps[i + j * NR];
+		    if(k == NA_INTEGER) {iv[i] = NA_INTEGER; break;}
+		    if(k < 0) {
+			ECALL(call, _("negative values are not allowed in a matrix subscript"));
+		    }
+		    if(k == 0) {iv[i] = 0; break;}
+		    if (k > pdims[j]) {
+			ECALL_OutOfBounds(x, j, k, call);
+		    }
+		    iv[i] += (k - 1) * tdim;
+		    tdim *= pdims[j];
 		}
-		iv[i] += (k - 1) * tdim;
-		tdim *= pdims[j];
 	    }
 	}
     }
@@ -866,6 +948,27 @@ realSubscript(SEXP s, R_xlen_t ns, R_xlen_t nx, R_xlen_t *stretch,
     return R_NilValue;
 }
 
+static SEXP
+int64Subscript(SEXP s, R_xlen_t ns, R_xlen_t nx, R_xlen_t *stretch,
+	       SEXP call, SEXP x, int dim)
+{
+    SEXP real_s = PROTECT(allocVector(REALSXP, ns));
+    double *ps = REAL(real_s);
+    const R_int64_t *pi = INT64_RO(s);
+    for (R_xlen_t i = 0; i < ns; i++) {
+	R_int64_t val = pi[i];
+	if (val == NA_INT64)
+	    ps[i] = NA_REAL;
+	else if (val > R_XLEN_T_MAX) {
+	    ECALL(call, _("subscript too large"));
+	} else
+	    ps[i] = (double) val;
+    }
+    SEXP ans = realSubscript(real_s, ns, nx, stretch, call, x);
+    UNPROTECT(1);
+    return ans;
+}
+
 /* This uses a couple of horrible hacks in conjunction with
  * VectorAssign (in subassign.c).  If subscripting is used for
  * assignment, it is possible to extend a vector by supplying new
@@ -1000,6 +1103,8 @@ int_arraySubscript(int dim, SEXP s, SEXP dims, SEXP x, SEXP call)
 	return logicalSubscript(s, ns, nd, &stretch, call);
     case INTSXP:
 	return integerSubscript(s, ns, nd, &stretch, call, x, dim);
+    case INT64SXP:
+	return int64Subscript(s, ns, nd, &stretch, call, x, dim);
     case REALSXP:
 	/* We don't yet allow subscripts > R_SHORT_LEN_MAX */
 	PROTECT(tmp = coerceVector(s, INTSXP));
@@ -1058,6 +1163,15 @@ makeSubscript(SEXP x, SEXP s, R_xlen_t *stretch, SEXP call)
 	    return s;
 	}
     }
+    else if (IS_SCALAR(s, INT64SXP)) {
+	R_int64_t i = SCALAR_I64VAL(s);
+	if (0 < i && i <= nx) {
+	    *stretch = 0;
+	    if (i <= INT_MAX)
+		return ScalarInteger((int) i);
+	    return ScalarReal((double) i);
+	}
+    }
     else if (IS_SCALAR(s, REALSXP)) {
 	double di = SCALAR_DVAL(s);
 	if (1 <= di && di <= nx) {
@@ -1082,6 +1196,9 @@ makeSubscript(SEXP x, SEXP s, R_xlen_t *stretch, SEXP call)
 	break;
     case INTSXP:
 	ans = integerSubscript(s, ns, nx, stretch, call, x, -1);
+	break;
+    case INT64SXP:
+	ans = int64Subscript(s, ns, nx, stretch, call, x, -1);
 	break;
     case REALSXP:
 	ans = realSubscript(s, ns, nx, stretch, call, x);

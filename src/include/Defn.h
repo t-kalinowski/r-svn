@@ -421,12 +421,14 @@ typedef union { VECTOR_SEXPREC s; double align; } SEXPREC_ALIGN;
 #undef CHAR
 #define CHAR(x)		((const char *) STDVEC_DATAPTR(x))
 #define LOGICAL(x)	((int *) DATAPTR(x))
+#define INT64(x)	((R_int64_t *) DATAPTR(x))
 #define INTEGER(x)	((int *) DATAPTR(x))
 #define RAW(x)		((Rbyte *) DATAPTR(x))
 #define COMPLEX(x)	((Rcomplex *) DATAPTR(x))
 #define REAL(x)		((double *) DATAPTR(x))
 #define STRING_PTR(x)	((SEXP *) DATAPTR(x))
 #define LOGICAL_RO(x)	((const int *) DATAPTR_RO(x))
+#define INT64_RO(x)	((const R_int64_t *) DATAPTR_RO(x))
 #define INTEGER_RO(x)	((const int *) DATAPTR_RO(x))
 #define RAW_RO(x)	((const Rbyte *) DATAPTR_RO(x))
 #define COMPLEX_RO(x)	((const Rcomplex *) DATAPTR_RO(x))
@@ -830,9 +832,12 @@ SEXP R_FixupRHS(SEXP x, SEXP y);
 double SCALAR_DVAL(SEXP x);
 int SCALAR_LVAL(SEXP x);
 int SCALAR_IVAL(SEXP x);
+R_int64_t *INT640(SEXP x);
+R_int64_t SCALAR_I64VAL(SEXP x);
 void SET_SCALAR_DVAL(SEXP x, double v);
 void SET_SCALAR_LVAL(SEXP x, int v);
 void SET_SCALAR_IVAL(SEXP x, int v);
+void SET_SCALAR_I64VAL(SEXP x, R_int64_t v);
 void SET_SCALAR_CVAL(SEXP x, Rcomplex v);
 void SET_SCALAR_BVAL(SEXP x, Rbyte v);
 
@@ -1988,6 +1993,7 @@ int R_XDRDecodeInteger(void *buf);
 # define ssort			Rf_ssort
 # define StringFromComplex	Rf_StringFromComplex
 # define StringFromInteger	Rf_StringFromInteger
+# define StringFromInt64	Rf_StringFromInt64
 # define StringFromLogical	Rf_StringFromLogical
 # define StringFromReal		Rf_StringFromReal
 # define strIsASCII		Rf_strIsASCII
@@ -2088,6 +2094,7 @@ double Rf_RealFromString(SEXP, int*);
 Rcomplex Rf_ComplexFromString(SEXP, int*);
 SEXP Rf_StringFromLogical(int);
 SEXP Rf_StringFromInteger(int, int*);
+SEXP Rf_StringFromInt64(R_int64_t, int*);
 SEXP Rf_StringFromReal(double, int*);
 SEXP Rf_StringFromComplex(Rcomplex, int*);
 SEXP Rf_EnsureString(SEXP);
@@ -2276,6 +2283,8 @@ void R_SaveGlobalEnv(void);
 void R_SaveGlobalEnvToFile(const char *);
 void R_SaveToFile(SEXP, FILE*, int);
 void R_SaveToFileV(SEXP, FILE*, int, int);
+int R_SerializeVersion(SEXP, int, Rboolean);
+void R_SerializeWithVersion(SEXP, R_outpstream_t);
 Rboolean R_seemsOldStyleS4Object(SEXP object);
 int R_SetOptionWarn(int);
 int R_SetOptionWidth(int);

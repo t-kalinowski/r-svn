@@ -62,6 +62,7 @@ all.equal.default <- function(target, current, ..., check.class = TRUE)
 	       else all.equal.list(target, current, ...))
     }
     msg <- switch (mode(target),
+                   int64     = all.equal.raw      (target, current, check.class=check.class, ...),
                    integer   = ,
                    complex   = ,
                    numeric   = all.equal.numeric  (target, current, check.class=check.class, ...),
@@ -448,6 +449,8 @@ all.equal.raw <-
     else if(sum(ne) > 1L) c(msg, paste(sum(ne), "element mismatches"))
     else msg
 }
+
+all.equal.int64 <- all.equal.raw
 
 
 ## attributes are a pairlist, so never 'long'

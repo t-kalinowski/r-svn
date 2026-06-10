@@ -141,6 +141,10 @@ attribute_hidden SEXP ExtractSubset(SEXP x, SEXP indx, SEXP call)
 	EXTRACT_SUBSET_LOOP(INTEGER0(result)[i] = INTEGER_ELT(x, ii),
 			    INTEGER0(result)[i] = NA_INTEGER);
 	break;
+    case INT64SXP:
+	EXTRACT_SUBSET_LOOP(INT640(result)[i] = INT64_ELT(x, ii),
+			    INT640(result)[i] = NA_INT64);
+	break;
     case REALSXP:
 	EXTRACT_SUBSET_LOOP(REAL0(result)[i] = REAL_ELT(x, ii),
 			    REAL0(result)[i] = NA_REAL);
@@ -197,7 +201,7 @@ static SEXP VectorSubset(SEXP x, SEXP s, SEXP call)
 		UNPROTECT(2); /* dnames, s */
 		PROTECT(s);
 	    }
-	    if (isInteger(s) || isReal(s)) {
+	    if (isInteger(s) || isReal(s) || TYPEOF(s) == INT64SXP) {
 		s = mat2indsub(dim, s, call, x);
 		UNPROTECT(1);
 		PROTECT(s);
@@ -339,6 +343,10 @@ static SEXP MatrixSubset(SEXP x, SEXP s, SEXP call, int drop)
     case INTSXP:
 	MATRIX_SUBSET_LOOP(INTEGER0(result)[ij] = INTEGER_ELT(x, iijj),
 			   INTEGER0(result)[ij] = NA_INTEGER);
+	break;
+    case INT64SXP:
+	MATRIX_SUBSET_LOOP(INT640(result)[ij] = INT64_ELT(x, iijj),
+			   INT640(result)[ij] = NA_INT64);
 	break;
     case REALSXP:
 	MATRIX_SUBSET_LOOP(REAL0(result)[ij] = REAL_ELT(x, iijj),
@@ -510,6 +518,10 @@ static SEXP ArraySubset(SEXP x, SEXP s, SEXP call, int drop)
     case INTSXP:
 	ARRAY_SUBSET_LOOP(INTEGER0(result)[i] = INTEGER_ELT(x, ii),
 			  INTEGER0(result)[i] = NA_INTEGER);
+	break;
+    case INT64SXP:
+	ARRAY_SUBSET_LOOP(INT640(result)[i] = INT64_ELT(x, ii),
+			  INT640(result)[i] = NA_INT64);
 	break;
     case REALSXP:
 	ARRAY_SUBSET_LOOP(REAL0(result)[i] = REAL_ELT(x, ii),
@@ -1091,7 +1103,7 @@ attribute_hidden SEXP do_subset2_dflt(SEXP call, SEXP op, SEXP args, SEXP rho)
 	    pindx[i] = (int)
 		get1index(thesub,
 			  (i < ndn) ? VECTOR_ELT(dimnames, i) : R_NilValue,
-			  pindx[i], pok, -1, call);
+			  pdims[i], pok, -1, call);
 	    subs = CDR(subs);
 	    if (pindx[i] < 0 || pindx[i] >= pdims[i])
 		errorcallOutOfBoundsSEXP(x, i, thesub, call);
@@ -1126,6 +1138,9 @@ attribute_hidden SEXP do_subset2_dflt(SEXP call, SEXP op, SEXP args, SEXP rho)
 	    break;
 	case INTSXP:
 	    INTEGER0(ans)[0] = INTEGER_ELT(x, offset);
+	    break;
+	case INT64SXP:
+	    INT640(ans)[0] = INT64_ELT(x, offset);
 	    break;
 	case REALSXP:
 	    REAL0(ans)[0] = REAL_ELT(x, offset);

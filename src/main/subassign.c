@@ -223,6 +223,12 @@ static SEXP EnlargeVector(SEXP x, R_xlen_t newlen)
 	for (R_xlen_t i = len; i < newtruelen; i++)
 	    INTEGER0(newx)[i] = NA_INTEGER;
 	break;
+    case INT64SXP:
+	for (R_xlen_t i = 0; i < len; i++)
+	    INT640(newx)[i] = INT64_ELT(x, i);
+	for (R_xlen_t i = len; i < newtruelen; i++)
+	    INT640(newx)[i] = NA_INT64;
+	break;
     case REALSXP:
 	for (R_xlen_t i = 0; i < len; i++)
 	    REAL0(newx)[i] = REAL_ELT(x, i);
@@ -335,6 +341,7 @@ static int SubassignTypeFix(SEXP *x, SEXP *y, R_xlen_t stretch,
 
     switch (which) {
     case 1000:	/* logical    <- null       */
+    case 1100:	/* int64      <- null       */
     case 1300:	/* integer    <- null       */
     case 1400:	/* real	      <- null       */
     case 1500:	/* complex    <- null       */
@@ -350,6 +357,7 @@ static int SubassignTypeFix(SEXP *x, SEXP *y, R_xlen_t stretch,
     case 1313:	/* integer    <- integer    */
     case 1413:	/* real	      <- integer    */
     case 1513:	/* complex    <- integer    */
+    case 1111:	/* int64      <- int64      */
     case 1414:	/* real	      <- real	    */
     case 1514:	/* complex    <- real	    */
     case 1515:	/* complex    <- complex    */
@@ -366,20 +374,45 @@ static int SubassignTypeFix(SEXP *x, SEXP *y, R_xlen_t stretch,
 	*x = coerceVector(*x, INTSXP);
 	break;
 
+    case 1011:	/* logical    <- int64	    */
+    case 1311:	/* integer    <- int64	    */
+
+	*x = coerceVector(*x, INT64SXP);
+	break;
+
+    case 1110:	/* int64      <- logical    */
+    case 1113:	/* int64      <- integer    */
+
+	*y = coerceVector(*y, INT64SXP);
+	break;
+
     case 1014:	/* logical    <- real	    */
     case 1314:	/* integer    <- real	    */
+    case 1114:	/* int64      <- real	    */
 
 	*x = coerceVector(*x, REALSXP);
 	break;
 
+    case 1411:	/* real       <- int64	    */
+
+	*y = coerceVector(*y, REALSXP);
+	break;
+
     case 1015:	/* logical    <- complex    */
+    case 1115:	/* int64      <- complex    */
     case 1315:	/* integer    <- complex    */
     case 1415:	/* real	      <- complex    */
 
 	*x = coerceVector(*x, CPLXSXP);
 	break;
 
+    case 1511:	/* complex    <- int64	    */
+
+	*y = coerceVector(*y, CPLXSXP);
+	break;
+
     case 1610:	/* character  <- logical    */
+    case 1611:	/* character  <- int64      */
     case 1613:	/* character  <- integer    */
     case 1614:	/* character  <- real	    */
     case 1615:	/* character  <- complex    */
@@ -388,6 +421,7 @@ static int SubassignTypeFix(SEXP *x, SEXP *y, R_xlen_t stretch,
 	break;
 
     case 1016:	/* logical    <- character  */
+    case 1116:	/* int64      <- character  */
     case 1316:	/* integer    <- character  */
     case 1416:	/* real	      <- character  */
     case 1516:	/* complex    <- character  */
@@ -401,6 +435,7 @@ static int SubassignTypeFix(SEXP *x, SEXP *y, R_xlen_t stretch,
     case 1905:  /* vector     <- promise   */
     case 1906:  /* vector     <- language   */
     case 1910:  /* vector     <- logical    */
+    case 1911:  /* vector     <- int64      */
     case 1913:  /* vector     <- integer    */
     case 1914:  /* vector     <- real       */
     case 1915:  /* vector     <- complex    */
@@ -433,6 +468,7 @@ static int SubassignTypeFix(SEXP *x, SEXP *y, R_xlen_t stretch,
 	break;
 
     case 1019:  /* logical    <- vector     */
+    case 1119:  /* int64      <- vector     */
     case 1319:  /* integer    <- vector     */
     case 1419:  /* real       <- vector     */
     case 1519:  /* complex    <- vector     */
@@ -442,6 +478,7 @@ static int SubassignTypeFix(SEXP *x, SEXP *y, R_xlen_t stretch,
 	break;
 
     case 1020:  /* logical    <- expression */
+    case 1120:  /* int64      <- expression */
     case 1320:  /* integer    <- expression */
     case 1420:  /* real       <- expression */
     case 1520:  /* complex    <- expression */
@@ -454,6 +491,7 @@ static int SubassignTypeFix(SEXP *x, SEXP *y, R_xlen_t stretch,
     case 2002:  /* expression <- pairlist   */
     case 2006:	/* expression <- language   */
     case 2010:	/* expression <- logical    */
+    case 2011:	/* expression <- int64      */
     case 2013:	/* expression <- integer    */
     case 2014:	/* expression <- real	    */
     case 2015:	/* expression <- complex    */
@@ -482,6 +520,7 @@ static int SubassignTypeFix(SEXP *x, SEXP *y, R_xlen_t stretch,
 	break;
 
     case 1025: /* logical   <- S4|OBJ */
+    case 1125: /* int64     <- S4|OBJ */
     case 1325: /* integer   <- S4|OBJ */
     case 1425: /* real      <- S4|OBJ */
     case 1525: /* complex   <- S4|OBJ */
@@ -652,7 +691,7 @@ static SEXP VectorAssign(SEXP call, SEXP rho, SEXP x, SEXP s, SEXP y)
 		UNPROTECT(2); /* dnames, s */
 		PROTECT(s);
 	    }
-	    if (isInteger(s) || isReal(s)) {
+	    if (isInteger(s) || isReal(s) || TYPEOF(s) == INT64SXP) {
 		s = mat2indsub(dim, s, R_NilValue, x);
 		//                     .......... or call, as in VectorSubset() [subset.c]?
 		UNPROTECT(1);
@@ -721,6 +760,14 @@ static SEXP VectorAssign(SEXP call, SEXP rho, SEXP x, SEXP s, SEXP y)
 	{
 	    int *px = INTEGER(x);
 	    VECTOR_ASSIGN_LOOP(px[ii] = INTEGER_ELT(y, iny););
+	}
+	break;
+
+    case 1111:	/* int64     <- int64	  */
+
+	{
+	    R_int64_t *px = INT64(x);
+	    VECTOR_ASSIGN_LOOP(px[ii] = INT64_ELT(y, iny););
 	}
 	break;
 
@@ -1030,6 +1077,14 @@ static SEXP MatrixAssign(SEXP call, SEXP rho, SEXP x, SEXP s, SEXP y)
 	}
 	break;
 
+    case 1111:	/* int64     <- int64	  */
+
+	{
+	    R_int64_t *px = INT64(x);
+	    MATRIX_ASSIGN_LOOP(px[ij] = INT64_ELT(y, k););
+	}
+	break;
+
     case 1410:	/* real	     <- logical	  */
     case 1413:	/* real	     <- integer	  */
 
@@ -1268,6 +1323,14 @@ static SEXP ArrayAssign(SEXP call, SEXP rho, SEXP x, SEXP s, SEXP y)
 	}
 	break;
 
+    case 1111:	/* int64     <- int64	  */
+
+	{
+	    R_int64_t *px = INT64(x);
+	    ARRAY_ASSIGN_LOOP(px[ii] = INT64_ELT(y, iny););
+	}
+	break;
+
     case 1410:	/* real	     <- logical	  */
     case 1413:	/* real	     <- integer	  */
 
@@ -1393,6 +1456,9 @@ static SEXP GetOneIndex(SEXP sub, int ind)
 	switch (TYPEOF(sub)) {
 	case INTSXP:
 	    sub = ScalarInteger(INTEGER_ELT(sub, ind));
+	    break;
+	case INT64SXP:
+	    sub = ScalarInt64(INT64_ELT(sub, ind));
 	    break;
 	case REALSXP:
 	    sub = ScalarReal(REAL_ELT(sub, ind));
@@ -1660,6 +1726,7 @@ attribute_hidden SEXP do_subassign_dflt(SEXP call, SEXP op, SEXP args, SEXP rho)
 
     switch (TYPEOF(x)) {
     case LGLSXP:
+    case INT64SXP:
     case INTSXP:
     case REALSXP:
     case CPLXSXP:
@@ -1928,6 +1995,11 @@ do_subassign2_dflt(SEXP call, SEXP op, SEXP args, SEXP rho)
 	    INTEGER(x)[offset] = INTEGER_ELT(y, 0);
 	    break;
 
+	case 1111:	/* int64     <- int64	  */
+
+	    INT64(x)[offset] = INT64_ELT(y, 0);
+	    break;
+
 	case 1410:	/* real	     <- logical	  */
 	case 1413:	/* real	     <- integer	  */
 
@@ -2001,6 +2073,7 @@ do_subassign2_dflt(SEXP call, SEXP op, SEXP args, SEXP rho)
 	case 1905:  /* vector     <- promise    */
 	case 1906:  /* vector     <- language   */
 	case 1910:  /* vector     <- logical    */
+	case 1911:  /* vector     <- int64      */
 	case 1913:  /* vector     <- integer    */
 	case 1914:  /* vector     <- real       */
 	case 1915:  /* vector     <- complex    */
@@ -2019,6 +2092,7 @@ do_subassign2_dflt(SEXP call, SEXP op, SEXP args, SEXP rho)
 	case 2002:	/* expression <- pairlist   */
 	case 2006:	/* expression <- language   */
 	case 2010:	/* expression <- logical    */
+	case 2011:	/* expression <- int64      */
 	case 2013:	/* expression <- integer    */
 	case 2014:	/* expression <- real	    */
 	case 2015:	/* expression <- complex    */

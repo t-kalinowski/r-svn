@@ -31,6 +31,8 @@
 #include "Parse.h"
 #include <R_ext/Print.h>
 
+#include "int64-utils.h"
+
 #if !defined(__STDC_ISO_10646__) && (defined(__APPLE__) || defined(__FreeBSD__) || defined(__sun))
 /* This may not be 100% true (see the comment in rlocale.h),
    but it seems true in normal locales.
@@ -2268,8 +2270,44 @@ static SEXP mkFloat(const char *s)
 
 static SEXP mkInt(const char *s)
 {
-    double f = R_atof(s);  /* or R_strtol? */
-    return ScalarInteger((int) f);
+    size_t len = strlen(s);
+    char *buf = (char *) R_alloc(len + 1, 1);
+    memcpy(buf, s, len + 1);
+    if (len > 0 && buf[len - 1] == 'L')
+	buf[len - 1] = '\0';
+
+    Rboolean is_hex = len > 2 && buf[0] == '0' &&
+	(buf[1] == 'x' || buf[1] == 'X');
+    if (strpbrk(buf, is_hex ? ".pP" : ".eEpP") == NULL) {
+	R_int64_t val;
+	if (int64_parse_integer_string(buf, FALSE, FALSE, &val)) {
+	    if (int64_fits_integer(val))
+		return ScalarInteger((int) val);
+	    return ScalarInt64(val);
+	}
+    } else {
+	R_int64_t exact;
+	if (!is_hex &&
+	    int64_parse_decimal_string(buf, FALSE, FALSE, FALSE, &exact)
+	    == INT64_PARSE_EXACT) {
+	    if (int64_fits_integer(exact))
+		return ScalarInteger((int) exact);
+	    return ScalarInt64(exact);
+	}
+	double f = R_atof(s);
+	if (R_FINITE(f) && f >= (double) R_INT64_MIN &&
+	    f < (double) R_INT64_MAX) {
+	    R_int64_t val = (R_int64_t) f;
+	    if ((double) val == f && val != NA_INT64) {
+		if (int64_fits_integer(val))
+		    return ScalarInteger((int) val);
+		return ScalarInt64(val);
+	    }
+	}
+    }
+
+    warning(_("integer literal %s exceeds int64 range; returning NA_INT64"), s);
+    return ScalarInt64(NA_INT64);
 }
 
 static SEXP mkComplex(const char *s)
@@ -2660,13 +2698,13 @@ static int NumericValue(int c)
     YYTEXT_PUSH('\0', yyp);    
     /* Make certain that things are okay. */
     if(c == 'L') {
-	double a = R_atof(yytext);
-	int b = (int) a;
 	/* We are asked to create an integer via the L, so we check that the
-	   double and int values are the same. If not, this is a problem and we
-	   will not lose information and so use the numeric value.
+	   double value is integer-valued. Range is checked when the literal is
+	   allocated, so int32 overflow can promote to int64.
 	*/
-	if(a != (double) b) {
+	R_int64_t exact;
+	if(int64_parse_decimal_string(yytext, FALSE, FALSE, TRUE, &exact)
+	   == INT64_PARSE_FRACTION) {
 	    if(GenerateCode) {
 		if(seendot == 1 && seenexp == 0)
 		    warning(_("integer literal %s contains decimal; using numeric value"), yytext);
@@ -2677,6 +2715,20 @@ static int NumericValue(int c)
 	    }
 	    asNumeric = 1;
 	    seenexp = 1;
+	} else {
+	    double a = R_atof(yytext);
+	    if(R_FINITE(a) && a != floor(a)) {
+		if(GenerateCode) {
+		    if(seendot == 1 && seenexp == 0)
+			warning(_("integer literal %s contains decimal; using numeric value"), yytext);
+		    else {
+			/* hide the L for the warning message */
+			warning(_("non-integer value %s qualified with L; using numeric value"), yytext);
+		    }
+		}
+		asNumeric = 1;
+		seenexp = 1;
+	    }
 	}
     }
 

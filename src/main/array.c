@@ -46,6 +46,7 @@
 #endif
 
 #include "duplicate.h"
+#include "int64-accum.h"
 
 #include <complex.h>
 #include "Rcomplex.h"	/* toC99 */
@@ -189,6 +190,10 @@ attribute_hidden SEXP do_matrix(SEXP call, SEXP op, SEXP args, SEXP rho)
 	case INTSXP:
 	    for (i = 0; i < N; i++)
 		INTEGER(ans)[i] = NA_INTEGER;
+	    break;
+	case INT64SXP:
+	    for (i = 0; i < N; i++)
+		INT64(ans)[i] = NA_INT64;
 	    break;
 	case REALSXP:
 	    for (i = 0; i < N; i++)
@@ -553,6 +558,7 @@ attribute_hidden SEXP do_lengths(SEXP call, SEXP op, SEXP args, SEXP rho)
 	case CHARSXP:
 	case LGLSXP:
 	case INTSXP:
+	case INT64SXP:
 	case REALSXP:
 	case CPLXSXP:
 	case STRSXP:
@@ -1626,6 +1632,12 @@ attribute_hidden SEXP do_transpose(SEXP call, SEXP op, SEXP args, SEXP rho)
 	    INTEGER(r)[i] = INTEGER(a)[j];
 	}
 	break;
+    case INT64SXP:
+	for (i = 0, j = 0; i < len; i++, j += nrow) {
+	    if (j > l_1) j -= l_1;
+	    INT64(r)[i] = INT64(a)[j];
+	}
+	break;
     case REALSXP:
 	for (i = 0, j = 0; i < len; i++, j += nrow) {
 	    if (j > l_1) j -= l_1;
@@ -1788,6 +1800,13 @@ attribute_hidden SEXP do_aperm(SEXP call, SEXP op, SEXP args, SEXP rho)
 	    lj += iip[i_] * stride[i_]
 
     switch (TYPEOF(a)) {
+    case INT64SXP:
+	for (lj = 0, li = 0; li < len; li++) {
+	    INT64(r)[li] = INT64(a)[lj];
+	    CLICKJ;
+	}
+	break;
+
     case INTSXP:
 	for (lj = 0, li = 0; li < len; li++) {
 	    INTEGER(r)[li] = INTEGER(a)[lj];
@@ -1908,6 +1927,7 @@ attribute_hidden SEXP do_colsum(SEXP call, SEXP op, SEXP args, SEXP rho)
     int type = TYPEOF(x);
     switch (type) {
     case LGLSXP:
+    case INT64SXP:
     case INTSXP:
     case REALSXP:
     case CPLXSXP: break;
@@ -1955,6 +1975,24 @@ attribute_hidden SEXP do_colsum(SEXP call, SEXP op, SEXP args, SEXP rho)
 		    else if (keepNA) {sum = NA_REAL; break;}
 		break;
 	    }
+	    case INT64SXP:
+	    {
+		R_int64_t *ix = INT64(x) + (R_xlen_t)n*j;
+		R_int64_accum_t isum;
+		Rboolean has_na = FALSE;
+		int64_accum_init(&isum);
+		for (cnt = 0, sum = 0., i = 0; i < n; i++, ix++)
+		    if (*ix != NA_INT64) {
+			cnt++;
+			int64_accum_add(&isum, *ix);
+		    } else if (keepNA) {
+			sum = NA_REAL;
+			has_na = TRUE;
+			break;
+		    }
+		if (!has_na) sum = int64_accum_to_double(&isum);
+		break;
+	    }
 	    case LGLSXP:
 	    {
 		int *ix = LOGICAL(x) + (R_xlen_t)n*j;
@@ -1996,6 +2034,44 @@ attribute_hidden SEXP do_colsum(SEXP call, SEXP op, SEXP args, SEXP rho)
     }
     else { /* rows */
 	ans = PROTECT(allocVector((type == CPLXSXP) ? CPLXSXP : REALSXP, n));
+	if (type == INT64SXP) {
+	    int *Cnt = NULL, *HasNA = NULL;
+	    R_int64_accum_t *rans = R_Calloc(n, R_int64_accum_t);
+
+	    if (!keepNA && OP == 3) Cnt = R_Calloc(n, int);
+	    if (keepNA) HasNA = R_Calloc(n, int);
+
+	    for (R_xlen_t j = 0; j < p; j++) {
+		const R_int64_t *ix = INT64_RO(x) + (R_xlen_t)n * j;
+		for (R_xlen_t i = 0; i < n; i++, ix++) {
+		    if (keepNA) {
+			if (*ix != NA_INT64 && !HasNA[i])
+			    int64_accum_add(&rans[i], *ix);
+			else if (*ix == NA_INT64)
+			    HasNA[i] = 1;
+		    }
+		    else if (*ix != NA_INT64) {
+			int64_accum_add(&rans[i], *ix);
+			if (OP == 3) Cnt[i]++;
+		    }
+		}
+	    }
+	    for (R_xlen_t i = 0; i < n; i++) {
+		double sum = int64_accum_to_double(&rans[i]);
+		if (keepNA && HasNA[i])
+		    sum = NA_REAL;
+		else if (OP == 3)
+		    sum /= keepNA ? (double) p : (double) Cnt[i];
+		REAL(ans)[i] = sum;
+	    }
+
+	    if (!keepNA && OP == 3) R_Free(Cnt);
+	    if (keepNA) R_Free(HasNA);
+	    R_Free(rans);
+	    UNPROTECT(1);
+	    return ans;
+	}
+
 	/* allocate scratch storage to allow accumulating by columns
 	   to improve cache hits */
 	int *Cnt = NULL;
@@ -2043,6 +2119,20 @@ attribute_hidden SEXP do_colsum(SEXP call, SEXP op, SEXP args, SEXP rho)
 		    }
 		    else if (*ix != NA_INTEGER) {
 			*ra += *ix;
+			if (OP == 3) Cnt[i]++;
+		    }
+		break;
+	    }
+	    case INT64SXP:
+	    {
+		R_int64_t *ix = INT64(x) + (R_xlen_t)n * j;
+		for (R_xlen_t i = 0; i < n; i++, ra++, ix++)
+		    if (keepNA) {
+			if (*ix != NA_INT64) *ra += (LDOUBLE) *ix;
+			else *ra = NA_REAL;
+		    }
+		    else if (*ix != NA_INT64) {
+			*ra += (LDOUBLE) *ix;
 			if (OP == 3) Cnt[i]++;
 		    }
 		break;
@@ -2150,6 +2240,7 @@ attribute_hidden SEXP do_array(SEXP call, SEXP op, SEXP args, SEXP rho)
     switch(TYPEOF(vals)) {
 	case LGLSXP:
 	case INTSXP:
+	case INT64SXP:
 	case REALSXP:
 	case CPLXSXP:
 	case STRSXP:
@@ -2192,6 +2283,12 @@ attribute_hidden SEXP do_array(SEXP call, SEXP op, SEXP args, SEXP rho)
 				    lendat);
 	else
 	    for (i = 0; i < nans; i++) INTEGER(ans)[i] = NA_INTEGER;
+	break;
+    case INT64SXP:
+	if (nans && lendat)
+	    xcopyInt64WithRecycle(INT64(ans), INT64(vals), 0, nans, lendat);
+	else
+	    for (i = 0; i < nans; i++) INT64(ans)[i] = NA_INT64;
 	break;
     case REALSXP:
 	if (nans && lendat)
@@ -2323,6 +2420,13 @@ attribute_hidden SEXP do_diag(SEXP call, SEXP op, SEXP args, SEXP rho)
    {
        PROTECT(ans = allocMatrix(INTSXP, nr, nc));
        int *rx = INTEGER(x), *ra = INTEGER(ans);
+       mk_DIAG(0);
+       break;
+   }
+   case INT64SXP:
+   {
+       PROTECT(ans = allocMatrix(INT64SXP, nr, nc));
+       R_int64_t *rx = INT64(x), *ra = INT64(ans);
        mk_DIAG(0);
        break;
    }
@@ -2459,6 +2563,9 @@ attribute_hidden SEXP do_asplit(SEXP call, SEXP op, SEXP args, SEXP rho)
     case LGLSXP:
     case INTSXP:
 	ASPLIT_ITERATE( INTEGER(e)[j] = INTEGER(x)[k] );
+	break;
+    case INT64SXP:
+	ASPLIT_ITERATE( INT64(e)[j] = INT64(x)[k] );
 	break;
     case REALSXP:
 	ASPLIT_ITERATE( REAL(e)[j] = REAL(x)[k] );

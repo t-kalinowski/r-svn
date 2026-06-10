@@ -190,6 +190,7 @@ SEXP lazy_duplicate(SEXP s) {
     case EXPRSXP:
     case VECSXP:
     case LGLSXP:
+    case INT64SXP:
     case INTSXP:
     case REALSXP:
     case CPLXSXP:
@@ -344,6 +345,7 @@ static SEXP duplicate1(SEXP s, Rboolean deep)
 	UNPROTECT(2);
 	break;
     case LGLSXP: DUPLICATE_ATOMIC_VECTOR(int, LOGICAL, LOGICAL_RO, t, s, deep); break;
+    case INT64SXP: DUPLICATE_ATOMIC_VECTOR(R_int64_t, INT64, INT64_RO, t, s, deep); break;
     case INTSXP: DUPLICATE_ATOMIC_VECTOR(int, INTEGER, INTEGER_RO, t, s, deep); break;
     case REALSXP: DUPLICATE_ATOMIC_VECTOR(double, REAL, REAL_RO, t, s, deep); break;
     case CPLXSXP: DUPLICATE_ATOMIC_VECTOR(Rcomplex, COMPLEX, COMPLEX_RO, t, s, deep); break;
@@ -398,6 +400,9 @@ void copyVector(SEXP s, SEXP t)
 	break;
     case INTSXP:
 	xcopyIntegerWithRecycle(INTEGER(s), INTEGER_RO(t), 0, ns, nt);
+	break;
+    case INT64SXP:
+	xcopyInt64WithRecycle(INT64(s), INT64_RO(t), 0, ns, nt);
 	break;
     case REALSXP:
 	xcopyRealWithRecycle(REAL(s), REAL_RO(t), 0, ns, nt);
@@ -473,6 +478,10 @@ void copyMatrix(SEXP s, SEXP t, Rboolean byrow)
 	    FILL_MATRIX_BYROW_ITERATE(0, nr, nc, nt)
 		INTEGER(s)[didx] = INTEGER(t)[sidx];
 	    break;
+	case INT64SXP:
+	    FILL_MATRIX_BYROW_ITERATE(0, nr, nc, nt)
+		INT64(s)[didx] = INT64_RO(t)[sidx];
+	    break;
 	case REALSXP:
 	    FILL_MATRIX_BYROW_ITERATE(0, nr, nc, nt)
 		REAL(s)[didx] = REAL(t)[sidx];
@@ -523,6 +532,7 @@ xcopy##TNAME##WithRecycle(VALTYPE *dst, const VALTYPE *src, R_xlen_t dstart, R_x
 }
 
 COPY_WITH_RECYCLE(Rcomplex, Complex)	/* xcopyComplexWithRecycle */
+COPY_WITH_RECYCLE(R_int64_t, Int64)	/* xcopyInt64WithRecycle */
 COPY_WITH_RECYCLE(int, Integer)		/* xcopyIntegerWithRecycle */
 COPY_WITH_RECYCLE(int, Logical)		/* xcopyLogicalWithRecycle */
 COPY_WITH_RECYCLE(Rbyte, Raw)		/* xcopyRawWithRecycle */
@@ -565,6 +575,7 @@ attribute_hidden void xfill##TNAME##MatrixWithRecycle(VALTYPE *dst, VALTYPE *src
 }
 
 FILL_WITH_RECYCLE(Rcomplex, Complex)	/* xfillComplexMatrixWithRecycle */
+FILL_WITH_RECYCLE(R_int64_t, Int64)	/* xfillInt64MatrixWithRecycle */
 FILL_WITH_RECYCLE(int, Integer)		/* xfillIntegerMatrixWithRecycle */
 FILL_WITH_RECYCLE(int, Logical)		/* xfillLogicalMatrixWithRecycle */
 FILL_WITH_RECYCLE(Rbyte, Raw)		/* xfillRawMatrixWithRecycle */

@@ -1104,6 +1104,7 @@ SEXP eval(SEXP e, SEXP rho)
     case LISTSXP:
     case LGLSXP:
     case INTSXP:
+    case INT64SXP:
     case REALSXP:
     case STRSXP:
     case CPLXSXP:
@@ -2852,6 +2853,10 @@ attribute_hidden SEXP do_for(SEXP call, SEXP op, SEXP args, SEXP rho)
 	    case INTSXP:
 		ALLOC_LOOP_VAR(v, val_type, vpi);
 		SET_SCALAR_IVAL(v, INTEGER_ELT(val, i));
+		break;
+	    case INT64SXP:
+		ALLOC_LOOP_VAR(v, val_type, vpi);
+		SET_SCALAR_I64VAL(v, INT64_ELT(val, i));
 		break;
 	    case REALSXP:
 		ALLOC_LOOP_VAR(v, val_type, vpi);
@@ -7707,6 +7712,7 @@ static SEXP bcEval_loop(struct bcEval_locals *ploc)
 	switch(TYPEOF(seq)) {
 	case LGLSXP:
 	case INTSXP:
+	case INT64SXP:
 	case REALSXP:
 	case CPLXSXP:
 	case STRSXP:
@@ -7764,6 +7770,11 @@ static SEXP bcEval_loop(struct bcEval_locals *ploc)
 	    }
 	    GET_VEC_LOOP_VALUE(value);
 	    SET_SCALAR_IVAL(value, INTEGER_ELT(seq, i));
+	    SET_FOR_LOOP_VAR(value, cell, loopinfo, rho);
+	    NEXT();
+	  case INT64SXP:
+	    GET_VEC_LOOP_VALUE(value);
+	    SET_SCALAR_I64VAL(value, INT64_ELT(seq, i));
 	    SET_FOR_LOOP_VAR(value, cell, loopinfo, rho);
 	    NEXT();
 #ifdef COMPACT_INTSEQ

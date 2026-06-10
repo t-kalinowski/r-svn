@@ -55,6 +55,7 @@
 #include <R_ext/Itermacros.h>
 
 #include "arithmetic.h"
+#include "int64-utils.h"
 
 #include <errno.h>
 
@@ -280,9 +281,11 @@ SEXP R_unary(SEXP, SEXP, SEXP);
 SEXP R_binary(SEXP, SEXP, SEXP, SEXP);
 static SEXP logical_unary(ARITHOP_TYPE, SEXP, SEXP);
 static SEXP integer_unary(ARITHOP_TYPE, SEXP, SEXP);
+static SEXP int64_unary(ARITHOP_TYPE, SEXP, SEXP);
 static SEXP real_unary(ARITHOP_TYPE, SEXP, SEXP);
 static SEXP real_binary(ARITHOP_TYPE, SEXP, SEXP);
 static SEXP integer_binary(ARITHOP_TYPE, SEXP, SEXP, SEXP);
+static SEXP int64_binary(ARITHOP_TYPE, SEXP, SEXP, SEXP);
 
 #if 0
 static int naflag;
@@ -307,6 +310,7 @@ static SEXP lcall;
 #endif
 
 #define INTEGER_OVERFLOW_WARNING _("NAs produced by integer overflow")
+#define INT64_OVERFLOW_WARNING _("NAs produced by int64 overflow")
 
 #define CHECK_INTEGER_OVERFLOW(call, ans, naflag) do {		\
 	if (naflag) {						\
@@ -371,6 +375,34 @@ static R_INLINE double R_integer_divide(int x, int y)
 	return NA_REAL;
     else
 	return (double) x / (double) y;
+}
+
+static R_INLINE R_int64_t R_int64_idiv(R_int64_t x, R_int64_t y)
+{
+    if (x == NA_INT64 || y == NA_INT64 || y == 0)
+	return NA_INT64;
+    R_int64_t q = x / y;
+    R_int64_t r = x % y;
+    if (r != 0 && ((r > 0) != (y > 0)))
+	q--;
+    return q;
+}
+
+static R_INLINE R_int64_t R_int64_mod(R_int64_t x, R_int64_t y)
+{
+    if (x == NA_INT64 || y == NA_INT64 || y == 0)
+	return NA_INT64;
+    R_int64_t r = x % y;
+    if (r != 0 && ((r > 0) != (y > 0)))
+	r += y;
+    return r;
+}
+
+static R_INLINE double R_int64_divide(R_int64_t x, R_int64_t y)
+{
+    if (x == NA_INT64 || y == NA_INT64)
+	return NA_REAL;
+    return (double) x / (double) y;
 }
 
 static R_INLINE SEXP ScalarValue1(SEXP x)
@@ -452,24 +484,12 @@ attribute_hidden SEXP do_arith(SEXP call, SEXP op, SEXP args, SEXP env)
 		}
 	    }
 	    else if (IS_SCALAR(arg2, INTSXP)) {
-		bool naflag = false;
 		int i2 = SCALAR_IVAL(arg2);
 		switch (PRIMVAL(op)) {
 		case PLUSOP:
-		    ans = ScalarValue2(arg1, arg2);
-		    SET_SCALAR_IVAL(ans, R_integer_plus(i1, i2, &naflag));
-		    CHECK_INTEGER_OVERFLOW(call, ans, naflag);
-		    return ans;
 		case MINUSOP:
-		    ans = ScalarValue2(arg1, arg2);
-		    SET_SCALAR_IVAL(ans, R_integer_minus(i1, i2, &naflag));
-		    CHECK_INTEGER_OVERFLOW(call, ans, naflag);
-		    return ans;
 		case TIMESOP:
-		    ans = ScalarValue2(arg1, arg2);
-		    SET_SCALAR_IVAL(ans, R_integer_times(i1, i2, &naflag));
-		    CHECK_INTEGER_OVERFLOW(call, ans, naflag);
-		    return ans;
+		    return R_binary(call, op, arg1, arg2);
 		case DIVOP:
 		    return ScalarReal(R_integer_divide(i1, i2));
 		}
@@ -519,7 +539,7 @@ attribute_hidden SEXP do_arith(SEXP call, SEXP op, SEXP args, SEXP env)
 #define FIXUP_NULL_AND_CHECK_TYPES(v, vpi) do { \
     switch (TYPEOF(v)) { \
     case NILSXP: REPROTECT(v = allocVector(INTSXP,0), vpi); break; \
-    case CPLXSXP: case REALSXP: case INTSXP: case LGLSXP: break; \
+    case CPLXSXP: case REALSXP: case INT64SXP: case INTSXP: case LGLSXP: break; \
     default: errorcall(call, _("non-numeric argument to binary operator")); \
     } \
 } while (0)
@@ -677,6 +697,8 @@ attribute_hidden SEXP R_binary(SEXP call, SEXP op, SEXP x, SEXP y)
 	if (TYPEOF(y) != INTSXP) COERCE_IF_NEEDED(y, REALSXP, ypi);
 	val = real_binary(oper, x, y);
     }
+    else if (TYPEOF(x) == INT64SXP || TYPEOF(y) == INT64SXP)
+	val = int64_binary(oper, x, y, call);
     else val = integer_binary(oper, x, y, call);
 
     /* quick return if there are no attributes */
@@ -722,6 +744,8 @@ attribute_hidden SEXP R_unary(SEXP call, SEXP op, SEXP s1)
 	return logical_unary(operation, s1, call);
     case INTSXP:
 	return integer_unary(operation, s1, call);
+    case INT64SXP:
+	return int64_unary(operation, s1, call);
     case REALSXP:
 	return real_unary(operation, s1, call);
     case CPLXSXP:
@@ -790,6 +814,30 @@ static SEXP integer_unary(ARITHOP_TYPE code, SEXP s1, SEXP call)
     return s1;			/* never used; to keep -Wall happy */
 }
 
+static SEXP int64_unary(ARITHOP_TYPE code, SEXP s1, SEXP call)
+{
+    R_xlen_t i, n;
+    SEXP ans;
+
+    switch (code) {
+    case PLUSOP:
+	return s1;
+    case MINUSOP:
+	ans = NO_REFERENCES(s1) ? s1 : duplicate(s1);
+	R_int64_t *pa = INT64(ans);
+	const R_int64_t *px = INT64_RO(s1);
+	n = XLENGTH(s1);
+	for (i = 0; i < n; i++) {
+	    R_int64_t x = px[i];
+	    pa[i] = (x == NA_INT64) ? NA_INT64 : -x;
+	}
+	return ans;
+    default:
+	errorcall(call, _("invalid unary operator"));
+    }
+    return s1;
+}
+
 static SEXP real_unary(ARITHOP_TYPE code, SEXP s1, SEXP lcall)
 {
     R_xlen_t i, n;
@@ -816,7 +864,6 @@ static SEXP integer_binary(ARITHOP_TYPE code, SEXP s1, SEXP s2, SEXP lcall)
     R_xlen_t i, i1, i2, n, n1, n2;
     int x1, x2;
     SEXP ans;
-    bool naflag = false;
 
     n1 = XLENGTH(s1);
     n2 = XLENGTH(s2);
@@ -825,6 +872,8 @@ static SEXP integer_binary(ARITHOP_TYPE code, SEXP s1, SEXP s2, SEXP lcall)
 
     if (code == DIVOP || code == POWOP)
 	ans = allocVector(REALSXP, n);
+    else if (code == PLUSOP || code == MINUSOP || code == TIMESOP)
+	ans = allocVector(INTSXP, n);
     else
 	ans = R_allocOrReuseVector(s1, s2, INTSXP, n);
     if (n == 0) return(ans);
@@ -832,45 +881,95 @@ static SEXP integer_binary(ARITHOP_TYPE code, SEXP s1, SEXP s2, SEXP lcall)
 
     switch (code) {
     case PLUSOP:
-	{
-	    int *pa = INTEGER(ans);
-	    const int *px1 = INTEGER_RO(s1);
-	    const int *px2 = INTEGER_RO(s2);
-	    MOD_ITERATE2_CHECK(NINTERRUPT, n, n1, n2, i, i1, i2, {
-		    x1 = px1[i1];
-		    x2 = px2[i2];
-		    pa[i] = R_integer_plus(x1, x2, &naflag);
-		});
-	    if (naflag)
-		warningcall(lcall, INTEGER_OVERFLOW_WARNING);
-	}
-	break;
     case MINUSOP:
-	{
-	    int *pa = INTEGER(ans);
-	    const int *px1 = INTEGER_RO(s1);
-	    const int *px2 = INTEGER_RO(s2);
-	    MOD_ITERATE2_CHECK(NINTERRUPT, n, n1, n2, i, i1, i2, {
-		    x1 = px1[i1];
-		    x2 = px2[i2];
-		    pa[i] = R_integer_minus(x1, x2, &naflag);
-		});
-	    if (naflag)
-		warningcall(lcall, INTEGER_OVERFLOW_WARNING);
-	}
-	break;
     case TIMESOP:
 	{
 	    int *pa = INTEGER(ans);
 	    const int *px1 = INTEGER_RO(s1);
 	    const int *px2 = INTEGER_RO(s2);
+	    bool needs64 = false;
 	    MOD_ITERATE2_CHECK(NINTERRUPT, n, n1, n2, i, i1, i2, {
 		    x1 = px1[i1];
 		    x2 = px2[i2];
-		    pa[i] = R_integer_times(x1, x2, &naflag);
+		    R_int64_t ix1 = int64_from_integer(x1);
+		    R_int64_t ix2 = int64_from_integer(x2);
+		    R_int64_t tmp;
+		    switch (code) {
+		    case PLUSOP:
+			tmp = (ix1 == NA_INT64 || ix2 == NA_INT64) ?
+			    NA_INT64 : ix1 + ix2;
+			break;
+		    case MINUSOP:
+			tmp = (ix1 == NA_INT64 || ix2 == NA_INT64) ?
+			    NA_INT64 : ix1 - ix2;
+			break;
+		    case TIMESOP:
+			tmp = (ix1 == NA_INT64 || ix2 == NA_INT64) ?
+			    NA_INT64 : ix1 * ix2;
+			break;
+		    default:
+			tmp = NA_INT64;
+		    }
+		    if (tmp != NA_INT64 && !int64_fits_integer(tmp))
+			needs64 = true;
+		    if (!needs64)
+			pa[i] = tmp == NA_INT64 ? NA_INTEGER : (int) tmp;
 		});
-	    if (naflag)
-		warningcall(lcall, INTEGER_OVERFLOW_WARNING);
+	    if (needs64) {
+		UNPROTECT(1);
+		PROTECT(ans = allocVector(INT64SXP, n));
+		R_int64_t *p64 = INT64(ans);
+		MOD_ITERATE2_CHECK(NINTERRUPT, n, n1, n2, i, i1, i2, {
+			x1 = px1[i1];
+			x2 = px2[i2];
+			R_int64_t ix1 = int64_from_integer(x1);
+			R_int64_t ix2 = int64_from_integer(x2);
+			switch (code) {
+			case PLUSOP:
+			    p64[i] = (ix1 == NA_INT64 || ix2 == NA_INT64) ?
+				NA_INT64 : ix1 + ix2;
+			    break;
+			case MINUSOP:
+			    p64[i] = (ix1 == NA_INT64 || ix2 == NA_INT64) ?
+				NA_INT64 : ix1 - ix2;
+			    break;
+			case TIMESOP:
+			    p64[i] = (ix1 == NA_INT64 || ix2 == NA_INT64) ?
+				NA_INT64 : ix1 * ix2;
+			    break;
+			default:
+			    p64[i] = NA_INT64;
+			}
+		    });
+	    }
+	}
+	break;
+    case MODOP:
+	{
+	    int *pa = INTEGER(ans);
+	    const int *px1 = INTEGER_RO(s1);
+	    const int *px2 = INTEGER_RO(s2);
+	    MOD_ITERATE2_CHECK(NINTERRUPT, n, n1, n2, i, i1, i2, {
+		    x1 = px1[i1];
+		    x2 = px2[i2];
+		    R_int64_t tmp = R_int64_mod(int64_from_integer(x1),
+						int64_from_integer(x2));
+		    pa[i] = tmp == NA_INT64 ? NA_INTEGER : (int) tmp;
+		});
+	}
+	break;
+    case IDIVOP:
+	{
+	    int *pa = INTEGER(ans);
+	    const int *px1 = INTEGER_RO(s1);
+	    const int *px2 = INTEGER_RO(s2);
+	    MOD_ITERATE2_CHECK(NINTERRUPT, n, n1, n2, i, i1, i2, {
+		    x1 = px1[i1];
+		    x2 = px2[i2];
+		    R_int64_t tmp = R_int64_idiv(int64_from_integer(x1),
+						 int64_from_integer(x2));
+		    pa[i] = tmp == NA_INT64 ? NA_INTEGER : (int) tmp;
+		});
 	}
 	break;
     case DIVOP:
@@ -900,41 +999,6 @@ static SEXP integer_binary(ARITHOP_TYPE code, SEXP s1, SEXP s2, SEXP lcall)
 		});
 	}
 	break;
-    case MODOP:
-	{
-	    int *pa = INTEGER(ans);
-	    const int *px1 = INTEGER_RO(s1);
-	    const int *px2 = INTEGER_RO(s2);
-	    MOD_ITERATE2_CHECK(NINTERRUPT, n, n1, n2, i, i1, i2, {
-		    x1 = px1[i1];
-		    x2 = px2[i2];
-		    if (x1 == NA_INTEGER || x2 == NA_INTEGER || x2 == 0)
-			pa[i] = NA_INTEGER;
-		    else {
-			pa[i] = /* till 0.63.2:	x1 % x2 */
-			    (x1 >= 0 && x2 > 0) ? x1 % x2 :
-			    (int)myfmod((double)x1,(double)x2);
-		    }
-		});
-	}
-	break;
-    case IDIVOP:
-	{
-	    int *pa = INTEGER(ans);
-	    const int *px1 = INTEGER_RO(s1);
-	    const int *px2 = INTEGER_RO(s2);
-	    MOD_ITERATE2_CHECK(NINTERRUPT, n, n1, n2, i, i1, i2, {
-		    x1 = px1[i1];
-		    x2 = px2[i2];
-		    /* This had x %/% 0 == 0 prior to 2.14.1, but
-		       it seems conventionally to be undefined */
-		    if (x1 == NA_INTEGER || x2 == NA_INTEGER || x2 == 0)
-			pa[i] = NA_INTEGER;
-		    else
-			pa[i] = (int) floor((double)x1 / (double)x2);
-		});
-	}
-	break;
     }
     UNPROTECT(1);
 
@@ -948,6 +1012,117 @@ static SEXP integer_binary(ARITHOP_TYPE code, SEXP s1, SEXP s2, SEXP lcall)
 	copyMostAttrib(s2, ans);
     if (ans != s1 && n == n1 && ATTRIB(s1) != R_NilValue)
 	copyMostAttrib(s1, ans); /* Done 2nd so s1's attrs overwrite s2's */
+
+    return ans;
+}
+
+static R_INLINE R_int64_t int64_operand(SEXP s, R_xlen_t i)
+{
+    if (TYPEOF(s) == INT64SXP)
+	return INT64_RO(s)[i];
+    else
+	return int64_from_integer(INTEGER_RO(s)[i]);
+}
+
+static SEXP int64_binary(ARITHOP_TYPE code, SEXP s1, SEXP s2, SEXP lcall)
+{
+    R_xlen_t i, i1, i2, n, n1, n2;
+    SEXP ans;
+    bool naflag = false;
+
+    n1 = XLENGTH(s1);
+    n2 = XLENGTH(s2);
+    if (n1 == 0 || n2 == 0) n = 0; else n = (n1 > n2) ? n1 : n2;
+
+    if (code == DIVOP || code == POWOP)
+	ans = allocVector(REALSXP, n);
+    else
+	ans = allocVector(INT64SXP, n);
+    if (n == 0) return ans;
+    PROTECT(ans);
+
+    switch (code) {
+    case PLUSOP:
+	{
+	    R_int64_t *pa = INT64(ans);
+	    MOD_ITERATE2_CHECK(NINTERRUPT, n, n1, n2, i, i1, i2, {
+		    pa[i] = int64_plus(int64_operand(s1, i1),
+				       int64_operand(s2, i2), &naflag);
+		});
+	}
+	break;
+    case MINUSOP:
+	{
+	    R_int64_t *pa = INT64(ans);
+	    MOD_ITERATE2_CHECK(NINTERRUPT, n, n1, n2, i, i1, i2, {
+		    pa[i] = int64_minus(int64_operand(s1, i1),
+					int64_operand(s2, i2), &naflag);
+		});
+	}
+	break;
+    case TIMESOP:
+	{
+	    R_int64_t *pa = INT64(ans);
+	    MOD_ITERATE2_CHECK(NINTERRUPT, n, n1, n2, i, i1, i2, {
+		    pa[i] = int64_times(int64_operand(s1, i1),
+					int64_operand(s2, i2), &naflag);
+		});
+	}
+	break;
+    case DIVOP:
+	{
+	    double *pa = REAL(ans);
+	    MOD_ITERATE2_CHECK(NINTERRUPT, n, n1, n2, i, i1, i2, {
+		    pa[i] = R_int64_divide(int64_operand(s1, i1),
+					   int64_operand(s2, i2));
+		});
+	}
+	break;
+    case POWOP:
+	{
+	    double *pa = REAL(ans);
+	    MOD_ITERATE2_CHECK(NINTERRUPT, n, n1, n2, i, i1, i2, {
+		    R_int64_t x1 = int64_operand(s1, i1);
+		    R_int64_t x2 = int64_operand(s2, i2);
+		    if (x1 == 1 || x2 == 0)
+			pa[i] = 1.;
+		    else if (x1 == NA_INT64 || x2 == NA_INT64)
+			pa[i] = NA_REAL;
+		    else
+			pa[i] = R_POW((double) x1, (double) x2);
+		});
+	}
+	break;
+    case MODOP:
+	{
+	    R_int64_t *pa = INT64(ans);
+	    MOD_ITERATE2_CHECK(NINTERRUPT, n, n1, n2, i, i1, i2, {
+		    pa[i] = R_int64_mod(int64_operand(s1, i1),
+					int64_operand(s2, i2));
+		});
+	}
+	break;
+    case IDIVOP:
+	{
+	    R_int64_t *pa = INT64(ans);
+	    MOD_ITERATE2_CHECK(NINTERRUPT, n, n1, n2, i, i1, i2, {
+		    pa[i] = R_int64_idiv(int64_operand(s1, i1),
+					 int64_operand(s2, i2));
+		});
+	}
+	break;
+    }
+    if (naflag)
+	warningcall(lcall, INT64_OVERFLOW_WARNING);
+    UNPROTECT(1);
+
+    if (ATTRIB(s1) == R_NilValue && ATTRIB(s2) == R_NilValue)
+	return ans;
+
+    if (ans != s2 && n == n2 && ATTRIB(s2) != R_NilValue)
+	copyMostAttrib(s2, ans);
+    if (ans != s1 && n == n1 && ATTRIB(s1) != R_NilValue)
+	copyMostAttrib(s1, ans);
 
     return ans;
 }
@@ -1338,7 +1513,7 @@ static double Rtan(double x)
     /* tan(x) =  x + x^3/3 + O(x^5)
               =. x  when |x|^3/3 < |x| EPS/2  <==>
 	                  x^2    < EPS * 3/2  <==>
- 	                   |x|   < sqrt(3/2 * EPS) */
+		                   |x|   < sqrt(3/2 * EPS) */
     return f_x_x(x, tan, sqrt(1.5 * DBL_EPSILON));
 }
 
@@ -1346,7 +1521,7 @@ static double Rcos(double x)
 {
     /* cos(x) =  1 - x^2/2! + x^4/4!
               =. 1 - x^2/2!  iff  x^4/24 < (1 - x^2/2) * EPS/2  ~= EPS/2 <==>
- 	                          x^4 < 12*EPS  */
+		                          x^4 < 12*EPS  */
     if (fabs(x) < sqrt(sqrt(12. * DBL_EPSILON)))
 	return (1. - x*x*0.5);
     else
@@ -1487,6 +1662,15 @@ attribute_hidden SEXP do_abs(SEXP call, SEXP op, SEXP args, SEXP env)
 	for(i = 0 ; i < n ; i++) {
 	    int xi = px[i];
 	    pa[i] = (xi == NA_INTEGER) ? xi : abs(xi);
+	}
+    } else if (TYPEOF(x) == INT64SXP) {
+	R_xlen_t i, n = XLENGTH(x);
+	PROTECT(s = NO_REFERENCES(x) ? x : allocVector(INT64SXP, n));
+	R_int64_t *pa = INT64(s);
+	const R_int64_t *px = INT64_RO(x);
+	for(i = 0 ; i < n ; i++) {
+	    R_int64_t xi = px[i];
+	    pa[i] = (xi == NA_INT64 || xi >= 0) ? xi : -xi;
 	}
     } else if (TYPEOF(x) == REALSXP) {
 	R_xlen_t i, n = XLENGTH(x);
